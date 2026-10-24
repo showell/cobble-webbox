@@ -647,7 +647,10 @@ function sidebar_tree__tb(__a0) {
     const x = __a0;
     {
       const view = state_get(sk_view());
-      return new __TC(widget_box__tb, ["sidebar", "sidebar", [widget_box("sidebar-hdr", "sidebar-hdr", [widget_add_child(widget_custom("brand", "box:brand", 0n, 0n), widget_label("brand-t", "CodexChat")), widget_button("new-conv", "+")]), widget_box("search-box", "sidebar-search", [widget_add_child(widget_custom("search", "input", 0n, 0n), widget_label("search-p", "Search..."))]), conv_list_or_contacts(view), nav_tabs(view)]]);
+      {
+        const me = state_get_text(sk_my_name());
+        return new __TC(widget_box__tb, ["sidebar", "sidebar", [widget_box("sidebar-hdr", "sidebar-hdr", [widget_add_child(widget_custom("brand", "box:brand", 0n, 0n), widget_label("brand-t", "CodexChat")), widget_label("whoami", ((me === "") ? "" : ("You are " + me))), widget_button("new-conv", "+")]), widget_box("search-box", "sidebar-search", [widget_add_child(widget_custom("search", "input", 0n, 0n), widget_label("search-p", "Search..."))]), conv_list_or_contacts(view), nav_tabs(view)]]);
+      }
     }
   }
 }
@@ -1086,7 +1089,7 @@ function send_cb(resp) {
   })();
 }
 function new_conversation(x) {
-  return show_prompt("New Conversation", "Enter username:", "username", new_conv_cb);
+  return show_prompt("Talk to someone", "Who do you want to talk to? Enter their name:", "their name", new_conv_cb);
 }
 function new_conv_cb(name) {
   return ((name === "") ? 0n : (() => {
@@ -1098,7 +1101,7 @@ function new_conv_cb(name) {
 function start_conv_cb(resp) {
   return (() => {
     const err = json_obj_field(json_parse_obj(resp), "error");
-    return ((err === "no such user") ? show_alert("New Conversation", "Nobody has claimed that name yet.", alert_done) : ((text_length(err) > 0n) ? show_alert("New Conversation", err, alert_done) : (() => {
+    return ((err === "no such user") ? show_alert("Talk to someone", "Nobody has claimed that name yet.", alert_done) : ((text_length(err) > 0n) ? show_alert("Talk to someone", err, alert_done) : (() => {
       const r = load_conversations(0n);
       return request_render(0n);
     })()));
@@ -1478,7 +1481,7 @@ function me_cb(...a) {
   return r;
 }
 function show_login(x) {
-  return show_prompt("Welcome to CodexChat", "Choose a username:", "your name", login_cb);
+  return show_prompt("Claim your name", "Choose a name for yourself. Once claimed, it is yours alone:", "your name", login_cb);
 }
 function login_cb__tb(__a0) {
   while (true) {
@@ -1507,7 +1510,7 @@ function register_cb__tb(__a0) {
         const tok = json_obj_field(obj, "token");
         if ((tok === "")) {
           if ((json_obj_field(obj, "error") === "name taken")) {
-            return show_prompt("Welcome to CodexChat", "That name is taken. Choose another:", "your name", login_cb);
+            return show_prompt("Claim your name", "That name is already claimed. Choose another:", "your name", login_cb);
           } else {
             return show_login(0n);
           }
