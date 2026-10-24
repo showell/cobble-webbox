@@ -87,6 +87,7 @@ function dom_query(sel){return document.querySelector(sel);}
 function dom_body(){return document.body;}
 function random_int(lo,hi){lo=BigInt(lo);hi=BigInt(hi);var span=hi-lo+1n;if(span<=0n)throw new RangeError('random-int lower bound exceeds upper bound');if(span===1n)return lo;var bits=(span-1n).toString(2).length,words=Math.ceil(bits/32),mask=(1n<<BigInt(bits))-1n,r;do{r=0n;for(var i=0;i<words;i++)r=(r<<32n)|BigInt(Math.floor(Math.random()*4294967296));r&=mask}while(r>=span);return lo+r}
 function set_timeout(fn,ms){return setTimeout(function(){fn(0n)},Number(ms));}
+function event_source_then(u,cb){var s=new EventSource(u);s.onopen=function(){cb('open')};s.onmessage=function(e){cb(e.data)};return 0;}
 var _actx=null;function _audioctx(){if(!_actx){try{_actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){return null}}if(_actx.state==='suspended'){try{_actx.resume()}catch(e){}}return _actx}
 function play_tone(freq,ms,wave){freq=Number(freq);ms=Number(ms);wave=Number(wave);try{var c=_audioctx();if(!c)return 0;var o=c.createOscillator();var g=c.createGain();o.type=wave===1?'triangle':wave===2?'square':wave===3?'sawtooth':'sine';o.frequency.value=freq;o.connect(g);g.connect(c.destination);var t=c.currentTime;var d=ms/1000;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.25,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+d);o.start(t);o.stop(t+d+0.02)}catch(e){}return 0}
 function local_storage_get(k){try{return localStorage.getItem(k)||'';}catch(e){return'';}}
@@ -218,7 +219,7 @@ if (typeof set_render === 'function') { set_render = ((f) => (...a) => __int(f(.
 if (typeof inject_theme_css === 'function') { inject_theme_css = ((f) => (...a) => __int(f(...a)))(inject_theme_css); }
 if (typeof mount_widget_themed === 'function') { mount_widget_themed = ((f) => (...a) => __int(f(...a)))(mount_widget_themed); }
 if (typeof show_prompt === 'function') { show_prompt = ((f) => (...a) => __int(f(...a)))(show_prompt); }
-if (typeof set_timeout === 'function') { set_timeout = ((f) => (...a) => __int(f(...a)))(set_timeout); }
+if (typeof event_source_then === 'function') { event_source_then = ((f) => (...a) => __int(f(...a)))(event_source_then); }
 if (typeof fetch_then === 'function') { fetch_then = ((f) => (...a) => __int(f(...a)))(fetch_then); }
 if (typeof show_alert === 'function') { show_alert = ((f) => (...a) => __int(f(...a)))(show_alert); }
 function Palette(fields) { return { _type: "Palette", ...fields }; }
@@ -1642,13 +1643,26 @@ function render_chat(x) {
     return 0n;
   })();
 }
-function poll_messages(x) {
-  return (() => {
-    const c = ((state_get_text("token") === "") ? 0n : load_conversations(0n));
-    const active = state_get(sk_active_conv());
-    const m = ((active < 0n) ? 0n : load_messages(0n));
-    return set_timeout(poll_messages, 3000n);
-  })();
+function on_chat_event__tb(__a0) {
+  while (true) {
+    const what = __a0;
+    {
+      const c = ((state_get_text("token") === "") ? 0n : load_conversations(0n));
+      {
+        const active = state_get(sk_active_conv());
+        if ((active < 0n)) {
+          return 0n;
+        } else {
+          return load_messages(0n);
+        }
+      }
+    }
+  }
+}
+function on_chat_event(...a) {
+  let r = on_chat_event__tb(...a);
+  while (r instanceof __TC) { r = r.f(...r.a); }
+  return r;
 }
 function opening() {
   return (() => {
@@ -1659,7 +1673,7 @@ function opening() {
       const s3 = set_render(render_chat);
       const h = register_handlers(no_pick, chat_click);
       const r = render_chat(0n);
-      const p = set_timeout(poll_messages, 3000n);
+      const p = event_source_then("/api/chat/events", on_chat_event);
       return check_auth(0n);
     })();
   })();

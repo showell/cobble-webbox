@@ -74,13 +74,19 @@ pub fn bodyLimit(path: []const u8) u64 {
 /// The routes after which server.ps1 saved its state.
 const changing = [_][]const u8{ "/api/chat/register", "/api/chat/send", "/api/chat/start", "/api/chat/group" };
 
-pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: *webbox.bus.Bus) !void {
+/// The bus key every page's event stream listens on. A change publishes
+/// `changed` and nothing else: each page asks again with its own token, as
+/// ChatServe's streams on bare metal have it.
+const events_key = "chat";
+
+pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, bus: *webbox.bus.Bus) !void {
     const target = try http.target(req, alloc);
     const path = http.pathOf(target);
     if (std.mem.eql(u8, path, "/") or std.mem.eql(u8, path, "/chat.html")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return req.respond(@embedFile("chat_page"), .{ .extra_headers = &.{http.html_ct} });
     }
+    if (std.mem.eql(u8, path, "/api/chat/events")) return webbox.sse.forward(req, bus, events_key);
     if (!std.mem.startsWith(u8, path, "/api/")) return http.notFound(req);
     _ = try http.readLimitedBody(req, alloc, 4096);
     var time: [5]u8 = undefined;
@@ -92,6 +98,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     for (changing) |c| if (std.mem.eql(u8, path, c)) {
         if (!onBigStack(chat.save, .{state})) return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
         try disk.sync(disk_io);
+        bus.publish(events_key, "changed");
         break;
     };
     const content_type = try std.fmt.allocPrint(alloc, "{s}; charset=utf-8", .{answer.content_type});
