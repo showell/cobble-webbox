@@ -14,8 +14,8 @@
   #live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #7a7; margin-right: 6px; }
   #live.off { background: #c55; }
   main { display: flex; gap: 12px; padding: 0 16px 16px; flex-wrap: wrap; }
-  #stage { flex: 1 1 360px; min-width: 0; }
-  canvas { display: block; width: 100%; border-radius: 6px; touch-action: manipulation; }
+  #stage { flex: 1 1 360px; min-width: 0; max-height: calc(100vh - 70px); overflow-y: auto; border-radius: 6px; }
+  canvas { display: block; touch-action: manipulation; cursor: pointer; }
   aside { flex: 0 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
   .box h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 0 0 6px; font-weight: normal; }
@@ -61,13 +61,15 @@ function hhmm(s) {
   return { day: d, text: String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"), hour: h + m / 60 };
 }
 
+// The map's width fills the stage; its height scrolls. The canvas's CSS
+// size is set exactly, or the browser stretches it and every pixel blurs.
 function fit() {
   if (!map) return;
   const w = document.getElementById("stage").clientWidth;
-  const h = Math.max(320, window.innerHeight - 90);
-  tile = Math.max(2, Math.min(w / map.width, h / map.height));
+  tile = Math.max(3, Math.floor(w / map.width * 4) / 4);
   canvas.width = Math.round(map.width * tile * devicePixelRatio);
   canvas.height = Math.round(map.height * tile * devicePixelRatio);
+  canvas.style.width = (map.width * tile) + "px";
   canvas.style.height = (map.height * tile) + "px";
   ground.width = canvas.width; ground.height = canvas.height;
   paintGround();
@@ -80,16 +82,22 @@ function groundTile(x, y) {   // map-relative tile
   gctx.fillRect(x * T, y * T, T + 1, T + 1);
 }
 
+// Each shop a roof with its trade on it, small, inside its own walls
+// where it fits; the full name is on the card when someone stands by it.
 function paintShops() {
   const d = devicePixelRatio, T = tile * d;
-  gctx.textAlign = "center";
+  gctx.textAlign = "center"; gctx.textBaseline = "middle";
   for (const s of map.shops) {
     const x = (s.x1 - map.x) * T, y = (s.y1 - map.y) * T, w = (s.x2 - s.x1 + 1) * T, h = (s.y2 - s.y1 + 1) * T;
-    gctx.fillStyle = "#b9a27a"; gctx.fillRect(x, y, w, h);
-    gctx.strokeStyle = "#5e4b2f"; gctx.lineWidth = d * 1.5; gctx.strokeRect(x, y, w, h);
-    gctx.fillStyle = "#f3ead2"; gctx.font = `${Math.max(9, T * 2.2)}px Georgia`;
-    gctx.fillText(s.premises, x + w / 2, y - T * 0.6);
+    gctx.fillStyle = "#a0563b"; gctx.fillRect(x, y, w, h);
+    gctx.strokeStyle = "#4a2618"; gctx.lineWidth = d * 2; gctx.strokeRect(x, y, w, h);
+    gctx.fillStyle = "#f6e7c8";
+    for (const px of [11, 9]) {   // the trade's name where it fits, else none
+      gctx.font = `${px * d}px Georgia`;
+      if (gctx.measureText(s.title).width <= w - 4 * d && px * d <= h) { gctx.fillText(s.title, x + w / 2, y + h / 2); break; }
+    }
   }
+  gctx.textBaseline = "alphabetic";
 }
 
 function paintGround() {
@@ -139,6 +147,11 @@ function showCard() {
   const card = document.getElementById("card");
   const p = people.find(q => q.name === following);
   if (!p) return;
+  if (p.hitY !== undefined) {   // keep the one followed in view
+    const stage = document.getElementById("stage");
+    if (p.hitY < stage.scrollTop + 40 || p.hitY > stage.scrollTop + stage.clientHeight - 40)
+      stage.scrollTo({ top: p.hitY - stage.clientHeight / 2, behavior: "smooth" });
+  }
   const [job, face] = JOBS[p.job] || JOBS[0];
   const shop = map.shops.find(s => p.x >= s.x1 - 3 && p.x <= s.x2 + 3 && p.y >= s.y1 - 3 && p.y <= s.y2 + 3);
   card.classList.remove("hint");
@@ -159,23 +172,28 @@ function draw() {
     const from = prev[p.name] || p;
     p.drawX = from.x + (p.x - from.x) * f;
     p.drawY = from.y + (p.y - from.y) * f;
-    const x = sx(p.drawX) + T / 2, y = sy(p.drawY) + T / 2, r = Math.max(7 * d, T * 1.6);
+    // People sharing a tile (the inn's beds) are fanned out so each shows.
+    const twin = people.slice(0, i).filter(q => q.x === p.x && q.y === p.y).length;
+    const x = sx(p.drawX) + T / 2 + twin * 18 * d, y = sy(p.drawY) + T / 2, r = 13 * d;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = COLORS[i % COLORS.length]; ctx.fill();
-    if (p.name === following) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * d; ctx.stroke(); }
-    ctx.font = `${r * 1.2}px serif`; ctx.textBaseline = "middle";
-    ctx.fillText((JOBS[p.job] || JOBS[0])[1], x, y + r * 0.05);
-    ctx.textBaseline = "alphabetic"; ctx.font = `${Math.max(10, T * 2.4)}px Georgia`;
-    ctx.fillStyle = "#fff"; ctx.fillText(p.name, x, y - r - 3 * d);
+    ctx.strokeStyle = p.name === following ? "#fff" : "#1d2318"; ctx.lineWidth = (p.name === following ? 3 : 2) * d; ctx.stroke();
+    ctx.font = `${15 * d}px serif`; ctx.textBaseline = "middle"; ctx.fillStyle = "#000";
+    ctx.fillText((JOBS[p.job] || JOBS[0])[1], x, y + d);
+    ctx.font = `${12 * d}px Georgia`; ctx.textBaseline = "alphabetic";
+    const nw = ctx.measureText(p.name).width + 10 * d;
+    ctx.fillStyle = "rgba(20,24,16,0.8)"; ctx.fillRect(x - nw / 2, y - r - 19 * d, nw, 16 * d);
+    ctx.fillStyle = "#fff"; ctx.fillText(p.name, x, y - r - 7 * d);
+    p.hitX = x / d; p.hitY = y / d;
   });
   if (dark > 0) { ctx.fillStyle = `rgba(10,14,40,${dark})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
 }
 
 canvas.addEventListener("click", e => {
   const b = canvas.getBoundingClientRect();
-  const x = (e.clientX - b.left) / tile + map.x, y = (e.clientY - b.top) / tile + map.y;
-  let best = null, dist = 6;
-  for (const p of people) { const dd = Math.hypot(p.drawX + 0.5 - x, p.drawY + 0.5 - y); if (dd < dist) { dist = dd; best = p; } }
+  const x = e.clientX - b.left, y = e.clientY - b.top;
+  let best = null, dist = 28;
+  for (const p of people) { const dd = Math.hypot(p.hitX - x, p.hitY - y); if (dd < dist) { dist = dd; best = p; } }
   following = best ? best.name : null;
   if (!best) { const c = document.getElementById("card"); c.classList.add("hint"); c.textContent = "Tap a townsperson to follow them."; }
   showCard();
@@ -196,6 +214,11 @@ function listen() {
   crier("The town wakes. Watch the townsfolk go about their day.");
   listen();
   draw();
+  // Open on the townsfolk: the inn is mid-map, below the first screenful.
+  requestAnimationFrame(() => {
+    const ys = people.map(p => p.hitY).filter(y => y !== undefined), stage = document.getElementById("stage");
+    if (ys.length) stage.scrollTop = ys.reduce((a, b) => a + b) / ys.length - stage.clientHeight / 2;
+  });
 })();
 </script>
 </body>
