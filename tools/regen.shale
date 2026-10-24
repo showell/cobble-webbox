@@ -1,31 +1,61 @@
--- **GAMESERVER.CODEX AS A ZIG LIBRARY** (src/gen/games.zig): Damian's game
--- server, transpiled by codexzig and reshaped by hand-kept rules into what
--- a host calls rather than runs. Until the ZigEmitter has a library mode,
--- this script is that mode, one rule per step, each refusing to apply
--- anywhere but exactly once:
+-- **COBBLESTONE'S SERVERS AS ZIG LIBRARIES** (src/gen/*.zig): each
+-- application's Codex root, transpiled by codexzig and reshaped by
+-- hand-kept rules into what a host calls rather than runs. Until the
+-- ZigEmitter has a library mode, this script is that mode, one rule per
+-- step, each refusing to apply anywhere but exactly once:
 --
 --   1. codexzig, built (Zig 0.16) from codex-zig-transpiler's checked-in
---      generated/codexzig.qemu.zig, into .zig-cache/, when missing;
---   2. the unit: apps/games/GameServer.codex with everything it cites, by
---      the checkout's own bundler (build/bundle-app.ps1);
+--      generated/codexzig.qemu.zig, into .zig-cache/, when missing
+--      (tools/codexzig.shale rebuilds it from the checkout);
+--   2. per application in APPS, the unit: its root with everything it
+--      cites, by the checkout's own bundler (build/bundle-app.ps1), and
+--      LIBRARY_ROOTS after it: what the face a host calls uses of the
+--      runtime (the print, and so the text conversions), which the
+--      emitter's shake keeps only for a chapter that reaches it;
 --   3. the Zig, and the library rules: the compiler's diagnostics out of
 --      the stream; no entry and no `main` (`opening` is a program's, not a
 --      library's); the overflow guard in a form Zig 0.16 and 0.17 both
---      take; `cx_print_line` through a host's hook; and the face a host
---      calls (src/games_api.zig.in) appended.
+--      take; `cx_print_line` through a host's hook; then the face every
+--      library shares (src/library.zig.in) and the application's own
+--      (its `api`) appended.
 --
 --   cd ~/showell_repos/cobble-webbox && shale tools/regen.shale
 --
 -- `cobble` is the Cobblestone checkout (default the box's `cobble:` mount,
 -- ~/showell_repos/cobblestone-pin), `transpiler` codex-zig-transpiler's.
 --
--- budget: steps=200000000 arena_bytes=1500000000
+-- budget: steps=400000000 arena_bytes=2500000000
 
 const COBBLE = arg("cobble", "cobble:")
 const TRANSPILER = arg("transpiler", "repos:codex-zig-transpiler")
 const ZIG016 = arg("zig016", "zig016:zig")
 const PWSH = arg("pwsh", "/home/steve/.local/pwsh/pwsh")
 
+-- **THE APPLICATIONS**: each its Codex root (in the checkout), the library
+-- written, and its own face.
+const APPS = {
+  {name = "games", root = "apps/games/GameServer.codex", out = "src/gen/games.zig", api = "src/games_api.zig.in"},
+  {name = "ideas", root = "apps/ideas/IdeaWeb.codex", out = "src/gen/ideas.zig", api = "src/ideas_api.zig.in"},
+}
+
+-- **LIBRARY MODE'S OWN ROOTS**, in Codex, so the emitter's shake keeps
+-- them by its own rule: a library's face reads and writes the chapter's
+-- text (src/library.zig.in), which a chapter that never prints gives the
+-- shake no reason to keep.
+const LIBRARY_ROOTS = [==[
+
+Chapter: LibraryRoots
+
+ What a host's face calls in the runtime, kept by the emitter's shake
+ for a library whose own chapters never reach it.
+
+ We say:
+
+Section: Roots
+
+  library-roots : [Console] Nothing
+  library-roots = print-line-uni ""
+]==]
 -- `rel` under `dir`; a mount's own root (`cobble:`) takes it without a
 -- leading `/`.
 function under(dir, rel)
@@ -48,32 +78,36 @@ if not exists(codexzig) then
   must(run({real(ZIG016), "build-exe", real(under(TRANSPILER, "generated/codexzig.qemu.zig")), "-O", "ReleaseSafe", "-femit-bin=codexzig"}, {cwd = ".zig-cache", timeout_ms = 900000, tail = 20}))
 end
 
--- 2. the unit
-local unit = ".zig-cache/gameserver-unit.codex"
-must(run({PWSH, "-NoProfile", "-File", real(under(COBBLE, "build/bundle-app.ps1")), "-Src", real(under(COBBLE, "apps/games/GameServer.codex")), "-Out", real(".") .. "/" .. unit}, {timeout_ms = 300000, tail = 3, want = "pwsh-bundle: the Cobblestone checkout's own bundler is PowerShell"}))
+local rev = trim(must(run({"git", "-C", real(COBBLE), "rev-parse", "--short=12", "HEAD"}, {timeout_ms = 10000, tail = 1})).out)
+local shared = read("src/library.zig.in")
 
--- 3. the Zig. codexzig writes the program and its diagnostics to the same
--- stream; a diagnostic line is never Zig.
-local r = must(run({real(codexzig)}, {timeout_ms = 600000, whole = 67108864, stdin = read(unit), want = "codexzig: built into .zig-cache by this script"}))
-local kept = {}
-local dropped = 0
-for l in lines(r.out) do
-  if starts_with(l, "CDX") or starts_with(l, "codexzig:") then dropped = dropped + 1 else push(kept, l) end
-end
-local zig = join(kept, "\n")
+for app in APPS do
+  -- 2. the unit
+  local unit = ".zig-cache/" .. app.name .. "-unit.codex"
+  must(run({PWSH, "-NoProfile", "-File", real(under(COBBLE, "build/bundle-app.ps1")), "-Src", real(under(COBBLE, app.root)), "-Out", real(".") .. "/" .. unit}, {timeout_ms = 300000, tail = 3, want = "pwsh-bundle: the Cobblestone checkout's own bundler is PowerShell"}))
 
-local entry_from = find(zig, "fn cx_entry() void {")
-local main_end = "    t.join();\n}\n"
-local entry_to = find(zig, main_end)
-if entry_from == nil or entry_to == nil then fail("regen: no entry and main to take out") end
-zig = sub(zig, 1, entry_from - 1) .. [=[comptime {
+  -- 3. the Zig. codexzig writes the program and its diagnostics to the
+  -- same stream; a diagnostic line is never Zig.
+  local r = must(run({real(codexzig)}, {timeout_ms = 600000, whole = 67108864, stdin = read(unit) .. LIBRARY_ROOTS, want = "codexzig: built into .zig-cache by this script"}))
+  local kept = {}
+  local dropped = 0
+  for l in lines(r.out) do
+    if starts_with(l, "CDX") or starts_with(l, "codexzig:") then dropped = dropped + 1 else push(kept, l) end
+  end
+  local zig = join(kept, "\n")
+
+  local entry_from = find(zig, "fn cx_entry() void {")
+  local main_end = "    t.join();\n}\n"
+  local entry_to = find(zig, main_end)
+  if entry_from == nil or entry_to == nil then fail("regen: " .. app.name .. ": no entry and main to take out") end
+  zig = sub(zig, 1, entry_from - 1) .. [=[comptime {
     // Library mode: the overflow guard, in a form Zig 0.16 and 0.17 both take
     // (0.17 has no `.ReleaseFast` field: its modes are `.fast` and `.small`).
     if (!@import("std").debug.runtime_safety) @compileError("emitted Codex traps on Integer overflow through zig's safety checks; build it Debug or ReleaseSafe");
 }
 ]=] .. sub(zig, entry_to + #main_end)
 
-zig = once(zig, [=[fn cx_print_line(s: []const u8) void {
+  zig = once(zig, [=[fn cx_print_line(s: []const u8) void {
     std.debug.print("{s}\n", .{cx_cce_to_utf8(s)});
 }]=], [=[fn cx_print_line(s: []const u8) void {
     if (cx_host_print) |p| return p(cx_cce_to_utf8(s));
@@ -81,9 +115,9 @@ zig = once(zig, [=[fn cx_print_line(s: []const u8) void {
 }
 /// Library mode: a host's own print for the chapter's Console lines; null,
 /// stderr as a program's.
-pub var cx_host_print: ?*const fn ([]const u8) void = null;]=], "cx_print_line")
+pub var cx_host_print: ?*const fn ([]const u8) void = null;]=], app.name .. ": cx_print_line")
 
-local rev = trim(must(run({"git", "-C", real(COBBLE), "rev-parse", "--short=12", "HEAD"}, {timeout_ms = 10000, tail = 1})).out)
-local head = "// GENERATED by tools/regen.shale from apps/games/GameServer.codex at Cobblestone " .. rev .. ",\n// through codexzig: do not edit; change the script or src/games_api.zig.in and run it again.\n\n"
-replace("src/gen/games.zig", head .. zig .. "\n" .. read("src/games_api.zig.in"))
-print("src/gen/games.zig: " .. #lines(read("src/gen/games.zig")) .. " lines, from " .. stat(unit).size .. " bytes of Codex at " .. rev .. " (" .. dropped .. " diagnostic lines left out)")
+  local head = "// GENERATED by tools/regen.shale from " .. app.root .. " at Cobblestone " .. rev .. ",\n// through codexzig: do not edit; change the script, src/library.zig.in or " .. app.api .. " and run it again.\n\n"
+  replace(app.out, head .. zig .. "\n" .. shared .. read(app.api))
+  print(app.out .. ": " .. #lines(read(app.out)) .. " lines, from " .. stat(unit).size .. " bytes of Codex at " .. rev .. " (" .. dropped .. " diagnostic lines left out)")
+end

@@ -20,6 +20,7 @@ const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
 const games = @import("gen/games.zig").api;
+const onBigStack = @import("stack.zig").onBigStack;
 
 /// The Cobblestone checkout the pages come from; main.zig sets it from
 /// COBBLESTONE_ROOT before the host starts.
@@ -102,25 +103,6 @@ pub fn parseAnswer(line: []const u8) ?Answer {
 
 fn jsonError(req: *std.http.Server.Request, status: std.http.Status, body: []const u8) !void {
     return req.respond(body, .{ .status = status, .extra_headers = &.{http.json_ct} });
-}
-
-/// **THE CHAPTER'S STACK**: emitted Codex recurses as its source does, and
-/// the program it came from ran on a 512 MiB stack (the emitter's `main`),
-/// not a handler's. Each call runs on a thread with that much, reserved
-/// and faulted in only as deep as it goes.
-const chapter_stack = 512 * 1024 * 1024;
-
-fn onBigStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
-    const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
-    const Call = struct {
-        fn run(out: *R, a: @TypeOf(args)) void {
-            out.* = @call(.auto, f, a);
-        }
-    };
-    var out: R = undefined;
-    const t = std.Thread.spawn(.{ .stack_size = chapter_stack }, Call.run, .{ &out, args }) catch @panic("cobble-webbox: no thread for the chapter's stack");
-    t.join();
-    return out;
 }
 
 /// The checkout's `dir/rel`, `rel` a path of plain names (letters, digits,

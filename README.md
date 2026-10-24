@@ -1,9 +1,13 @@
 # cobble-webbox
 
-Cobblestone's game server on [webbox](https://github.com/showell/zig-webbox).
-Damian's `apps/games/GameServer.codex`, the server side of the 34 classic games,
-compiled from Codex to Zig and served by webbox's Linux host, with no QEMU guest
-and no PowerShell bridge between the pages and the games.
+Cobblestone's servers on [webbox](https://github.com/showell/zig-webbox): Damian's
+server-side Codex compiled to Zig and served by webbox's Linux host, with no QEMU
+guest and no PowerShell bridge in front of it.
+
+- **Idea Forge** (`apps/ideas`): `IdeaWeb.codex`, a reservation service for
+  generated business ideas, on http://localhost:9105.
+- **The games** (`apps/games`): `GameServer.codex`, the server side of the 34
+  classic games, with Cobblestone's own pages, on http://localhost:9104.
 
 The aim is Damian's server-side Codex running on rented "bare metal": this
 Linux host first, then [zig-metal-unikernel](https://github.com/showell/zig-metal-unikernel)
@@ -15,13 +19,23 @@ system.
 From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 (`COBBLESTONE_ROOT` names another) and `../zig-webbox`, with Zig 0.17:
 
-    zig build serve     # http://localhost:9104 (COBBLE_PORT)
+    zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
+    zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
 
 The pages are Cobblestone's own (`apps/games/index.html`, `classic/web/*.html`),
 read from the checkout on every request.
 
 ## How it fits together
+
+- **`src/ideas_app.zig`** is Idea Forge's site: `apps/ideas/IdeaServer.codex`'s
+  network shell and `run.ps1`'s bridge, replaced. Every request goes to
+  IdeaWeb's `idea-route-at`, with the two facts IdeaServer supplied: the caller
+  (`X-Forwarded-For`, else `?who=`, else `the-proxy`, as `resolve-who` has it:
+  any proxy's word is believed, as there) and the day (whole days since the
+  house opened, as `current-day` counts PIT ticks since boot). Its state is in
+  memory, as there. The page (`IdeaPage.codex`, built by the HTML plug) is not
+  served yet: `/` is the API's own usage document.
 
 - **`src/app.zig`** is the site: Cobblestone's `apps/games/server.ps1`, route for
   route. `/api/*` hands GameServer the line server.ps1 built (`GET /api/tictactoe/step`)
@@ -32,8 +46,11 @@ read from the checkout on every request.
   cites, transpiled by codexzig (from
   [codex-zig-transpiler](https://github.com/showell/codex-zig-transpiler)), then
   reshaped into a library by **`tools/regen.shale`**: no `main`, Console output
-  through a host's hook, and the face in **`src/games_api.zig.in`** appended. That
-  script is the ZigEmitter's library mode until the emitter has one.
+  through a host's hook, a `LibraryRoots` chapter so the emitter's shake keeps
+  what the host's face uses, and the faces in **`src/library.zig.in`** and each
+  application's `src/*_api.zig.in` appended. That script is the ZigEmitter's
+  library mode until the emitter has one; `src/gen/ideas.zig` is the same for
+  IdeaWeb.codex.
 - **`tools/codexzig.shale`** rebuilds codexzig natively from the Cobblestone
   checkout, so an emitter change needs no QEMU: three passes, and the third must
   equal the second byte for byte.
@@ -57,6 +74,9 @@ is merged.
 
 - All 33 of GameServer's game routes (all but `/api/run/`) answer `new` and their
   first steps through the emitted Zig, with the two GameServer fixes above.
-- A panic in one game ends the process for all of them.
+- Idea Forge answers its whole protocol: a deal of three, the second deal of the
+  day refused (429), a claim, a foreign claim refused (404), the ledger with its
+  holder masked, window shopping.
+- A panic in one request ends the process.
 - The emitted runtime reserves its heap from the OS (4 GiB of address space, taken
   lazily) and never frees it: fine for a dev port, not yet for a 512 MB droplet.

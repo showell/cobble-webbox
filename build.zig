@@ -27,9 +27,21 @@ pub fn build(b: *std.Build) void {
     serve.step.dependOn(b.getInstallStep());
     b.step("serve", "Serve Cobblestone's games on http://localhost:9104 (COBBLE_PORT), pages from ../cobblestone-pin (COBBLESTONE_ROOT)").dependOn(&serve.step);
 
+    // Idea Forge (apps/ideas): zig build serve-ideas.
+    const ideas_exe = b.addExecutable(.{ .name = "idea-forge", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/ideas_main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = imports,
+    }) });
+    b.installArtifact(ideas_exe);
+    const serve_ideas = b.addRunArtifact(ideas_exe);
+    serve_ideas.step.dependOn(b.getInstallStep());
+    b.step("serve-ideas", "Serve Idea Forge on http://localhost:9105 (IDEAS_PORT)").dependOn(&serve_ideas.step);
+
     // The site's own tests, and GameServer answering through the emitted Zig.
-    const tests = b.step("test", "The site's tests and GameServer.codex's answers through the emitted Zig");
-    for ([_][]const u8{ "src/app.zig", "src/games_test.zig" }) |root| {
+    const tests = b.step("test", "The sites' tests, and GameServer.codex's and IdeaWeb.codex's answers through the emitted Zig");
+    for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig" }) |root| {
         const t = b.addTest(.{ .root_module = b.createModule(.{
             .root_source_file = b.path(root),
             .target = target,
