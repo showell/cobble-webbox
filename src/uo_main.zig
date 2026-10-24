@@ -1,6 +1,6 @@
-//! uoaix's first proof, served: webbox's Linux host with uo_app.zig.
+//! uoaix's first proofs, served: webbox's Linux host with uo_app.zig.
 //!
-//! Run:  zig build serve-uo       (on http://localhost:9107/uo/vendor-proof)
+//! Run:  zig build serve-uo       (on http://localhost:9107/uo/vendor-proof, /uo/town-proof)
 
 const std = @import("std");
 const webbox = @import("webbox");
@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_port = 9107,
         .default_trusted_proxy = "127.0.0.1",
         .default_auth_dir = "auth",
-        .routes_hint = "(/uo/vendor-proof)",
+        .routes_hint = "(/uo/vendor-proof, /uo/town-proof)",
         .free_space = unread,
     }, report);
 }

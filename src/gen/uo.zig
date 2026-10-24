@@ -6813,12 +6813,12 @@ const ascii_to_cce: [256]?u8 = blk: {
     break :blk t;
 };
 // ========================================================================
-// UOAIX'S VENDOR PROOF'S FACE (cobble-webbox, src/uo_api.zig.in, appended
+// A UOAIX PROOF'S FACE (cobble-webbox, src/uo_api.zig.in, appended
 // by tools/regen.shale after src/library.zig.in).
 // ========================================================================
 
-/// What a host calls: apps/uoaix/proofs/GameVendorReplay.codex, the proof
-/// a program runs as its `opening`, its Console lines to the host's sink.
+/// What a host calls: one of apps/uoaix/proofs/, the proof a program runs
+/// as its `opening`, its Console lines to the host's sink.
 pub const api = struct {
     /// Bytes of the Codex heap in use since its base.
     pub fn heapUsed() i64 {

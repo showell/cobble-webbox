@@ -56,8 +56,8 @@ pub fn build(b: *std.Build) void {
     serve_chat.step.dependOn(b.getInstallStep());
     b.step("serve-chat", "Serve Codex Chat on http://localhost:9106/codex-chat/ (CHAT_PORT), its state in data/codex-chat/ (CHAT_DATA)").dependOn(&serve_chat.step);
 
-    // uoaix's first proof (apps/uoaix/proofs/GameVendorReplay.codex): zig
-    // build serve-uo.
+    // uoaix's first proofs (apps/uoaix/proofs/GameVendorReplay.codex and
+    // TownLiveProof.codex): zig build serve-uo.
     const uo_exe = b.addExecutable(.{ .name = "uo", .root_module = b.createModule(.{
         .root_source_file = b.path("src/uo_main.zig"),
         .target = target,
@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(uo_exe);
     const serve_uo = b.addRunArtifact(uo_exe);
     serve_uo.step.dependOn(b.getInstallStep());
-    b.step("serve-uo", "Serve uoaix's vendor proof on http://localhost:9107/uo/vendor-proof (UO_PORT)").dependOn(&serve_uo.step);
+    b.step("serve-uo", "Serve uoaix's proofs on http://localhost:9107/uo/vendor-proof and /uo/town-proof (UO_PORT)").dependOn(&serve_uo.step);
 
     // **CODEX CHAT AS A MODULE**, for a site that serves it among its own
     // routes (angry-gopher, under /codex-chat): src/chat_app.zig's setup,
@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) void {
     withChatPage(b, codex_chat);
 
     // The sites' own tests, and the libraries answering through the emitted Zig.
-    const tests = b.step("test", "The sites' tests, and GameServer.codex's and IdeaWeb.codex's answers through the emitted Zig");
+    const tests = b.step("test", "The sites' tests, and the Codex libraries' answers through the emitted Zig");
     for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig", "src/chat_app.zig", "src/chat_test.zig", "src/uo_test.zig" }) |root| {
         const m = b.createModule(.{
             .root_source_file = b.path(root),
@@ -101,10 +101,11 @@ fn withChatPage(b: *std.Build, m: *std.Build.Module) void {
     m.addAnonymousImport("chat_page", .{ .root_source_file = b.path("web/chat.html") });
 }
 
-/// What uoaix's vendor proof prints, from the Cobblestone checkout beside
-/// this one, as `@embedFile("uo_expected")`.
+/// What uoaix's vendor and town proofs print, from the Cobblestone checkout
+/// beside this one, as `@embedFile("uo_expected")` and `"uo_town_expected"`.
 fn withUoExpected(b: *std.Build, m: *std.Build.Module) void {
     m.addAnonymousImport("uo_expected", .{ .root_source_file = b.path("../cobblestone-pin/apps/uoaix/proofs/GameVendorReplay.expected") });
+    m.addAnonymousImport("uo_town_expected", .{ .root_source_file = b.path("../cobblestone-pin/apps/uoaix/proofs/TownLiveProof.expected") });
 }
 
 /// The page ideas_app.zig serves at `/`, as `@embedFile("idea_forge_page")`.
