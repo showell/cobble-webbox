@@ -294,6 +294,9 @@ function widget_label(id, txt) {
 function widget_button(id, txt) {
   return { _type: "WidgetNode", wn_kind: WkButton(txt), wn_id: id, wn_children: [], wn_child_count: 0n, wn_layout_dir: DirRow, wn_gap: 0n, wn_flex: 0n, wn_min_w: __narrow(((_v) => { if (BigInt.asIntN(64, _v) !== _v) { throw new Error("CODEX_TRAP_integer_overflow"); } return _v; })(((_v) => { if (BigInt.asIntN(64, _v) !== _v) { throw new Error("CODEX_TRAP_integer_overflow"); } return _v; })(text_length(txt) * 8n) + 16n)), wn_min_h: 24n, wn_max_w: 0n, wn_max_h: 0n, wn_fit_w: true, wn_pref_w: 0n, wn_pref_h: 0n, wn_align: 0n, wn_flags: 0n, wn_data: 0n, wn_tone: tone_none(), wn_bounds: layout_rect_zero() };
 }
+function widget_input(id, txt, cursor) {
+  return { _type: "WidgetNode", wn_kind: WkInput(txt, cursor), wn_id: id, wn_children: [], wn_child_count: 0n, wn_layout_dir: DirRow, wn_gap: 0n, wn_flex: 1n, wn_min_w: 80n, wn_min_h: 24n, wn_max_w: 0n, wn_max_h: 0n, wn_fit_w: false, wn_pref_w: 0n, wn_pref_h: 0n, wn_align: 0n, wn_flags: 0n, wn_data: 0n, wn_tone: tone_none(), wn_bounds: layout_rect_zero() };
+}
 function widget_custom(id, tag, w, h) {
   return { _type: "WidgetNode", wn_kind: WkCustom(tag), wn_id: id, wn_children: [], wn_child_count: 0n, wn_layout_dir: DirRow, wn_gap: 0n, wn_flex: 0n, wn_min_w: __narrow(w), wn_min_h: __narrow(h), wn_max_w: 0n, wn_max_h: 0n, wn_fit_w: false, wn_pref_w: 0n, wn_pref_h: 0n, wn_align: 0n, wn_flags: 0n, wn_data: 0n, wn_tone: tone_none(), wn_bounds: layout_rect_zero() };
 }
@@ -620,6 +623,9 @@ function sk_conv_count() {
 function sk_msg_count() {
   return "msg-count";
 }
+function sk_msgs_shown() {
+  return "msgs-shown";
+}
 function sk_compose() {
   return "compose-text";
 }
@@ -943,7 +949,10 @@ function build_msg_items(__a0, __a1, __a2) {
 function compose_bar__tb(__a0) {
   while (true) {
     const x = __a0;
-    return new __TC(widget_box__tb, ["compose", "compose", [widget_add_child(widget_custom("msg-input", "input", 0n, 0n), widget_label("msg-placeholder", "Message")), widget_button("send-btn", "&#x27A4;")]]);
+    {
+      const typed = state_get_text(sk_compose());
+      return new __TC(widget_box__tb, ["compose", "compose", [widget_add_child(widget_input("msg-input", typed, text_length(typed)), widget_label("msg-placeholder", "Message")), widget_button("send-btn", "&#x27A4;")]]);
+    }
   }
 }
 function compose_bar(...a) {
@@ -1271,10 +1280,20 @@ function msgs_cb__tb(__a0) {
       {
         const count_str = json_obj_field(obj, "count");
         {
-          const count = text_to_int(count_str);
-          {
-            const s = state_set(sk_msg_count(), count);
-            return load_msg_details(0n, count, resp);
+          const shown = ((state_get_text(("conv-id-" + show(state_get(sk_active_conv())))) + "#") + count_str);
+          if ((shown === state_get_text(sk_msgs_shown()))) {
+            return 0n;
+          } else {
+            {
+              const k = state_set_text(sk_msgs_shown(), shown);
+              {
+                const count = text_to_int(count_str);
+                {
+                  const s = state_set(sk_msg_count(), count);
+                  return load_msg_details(0n, count, resp);
+                }
+              }
+            }
           }
         }
       }
