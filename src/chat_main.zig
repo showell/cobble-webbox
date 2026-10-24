@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         // The host opens a second root at the start; the chat keeps no
         // secret in it (its tokens are on its own disk).
         .default_auth_dir = "auth",
-        .routes_hint = "(/, /api/chat/*)",
+        .routes_hint = "(/codex-chat/, /codex-chat/api/chat/*)",
         .free_space = unread,
     }, report);
 }

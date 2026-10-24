@@ -1079,7 +1079,7 @@ function send_message(x) {
         const conv_id = state_get_text(("conv-id-" + show(active)));
         const body = url_encode(msg);
         const tok = state_get_text("token");
-        const r = fetch_then(((((("/api/chat/send?t=" + tok) + "&to=") + conv_id) + "&body=") + body), "POST", "", send_cb);
+        const r = fetch_then(((((((chat_api() + "send?t=") + tok) + "&to=") + conv_id) + "&body=") + body), "POST", "", send_cb);
         const s = state_set_text_render(sk_compose(), "");
         return 0n;
       })());
@@ -1098,7 +1098,7 @@ function new_conversation(x) {
 function new_conv_cb(name) {
   return ((name === "") ? 0n : (() => {
     const tok = state_get_text("token");
-    const r = fetch_get_then(((("/api/chat/start?t=" + tok) + "&with=") + url_encode(name)), start_conv_cb);
+    const r = fetch_get_then(((((chat_api() + "start?t=") + tok) + "&with=") + url_encode(name)), start_conv_cb);
     return 0n;
   })());
 }
@@ -1200,10 +1200,13 @@ function end_call(x) {
 function toggle_mute(x) {
   return 0n;
 }
+function chat_api() {
+  return "api/chat/";
+}
 function load_conversations(x) {
   return (() => {
     const tok = state_get_text("token");
-    return fetch_get_then(("/api/chat/conversations?t=" + tok), convs_cb);
+    return fetch_get_then(((chat_api() + "conversations?t=") + tok), convs_cb);
   })();
 }
 function convs_cb__tb(__a0) {
@@ -1289,7 +1292,7 @@ function load_messages(x) {
     return ((active < 0n) ? 0n : (() => {
       const tok = state_get_text("token");
       const conv_id = state_get_text(("conv-id-" + show(active)));
-      return fetch_get_then(((("/api/chat/messages?t=" + tok) + "&conv=") + conv_id), msgs_cb);
+      return fetch_get_then(((((chat_api() + "messages?t=") + tok) + "&conv=") + conv_id), msgs_cb);
     })());
   })();
 }
@@ -1376,7 +1379,7 @@ function load_msg_details(__a0, __a1, __a2) {
 function load_contacts(x) {
   return (() => {
     const tok = state_get_text("token");
-    return fetch_get_then(("/api/chat/contacts?t=" + tok), contacts_cb);
+    return fetch_get_then(((chat_api() + "contacts?t=") + tok), contacts_cb);
   })();
 }
 function contacts_cb__tb(__a0) {
@@ -1438,14 +1441,14 @@ function check_auth__tb(__a0) {
   while (true) {
     const x = __a0;
     {
-      const tok = local_storage_get("chat-token");
+      const tok = local_storage_get("codex-chat-token");
       if ((tok === "")) {
         return show_login(0n);
       } else {
         {
           const s = state_set_text("token", tok);
           {
-            const r = fetch_get_then(("/api/chat/me?t=" + url_encode(tok)), me_cb);
+            const r = fetch_get_then(((chat_api() + "me?t=") + url_encode(tok)), me_cb);
             return 0n;
           }
         }
@@ -1501,7 +1504,7 @@ function login_cb__tb(__a0) {
       return show_login(0n);
     } else {
       {
-        const r = fetch_get_then(("/api/chat/register?name=" + url_encode(name)), register_cb);
+        const r = fetch_get_then(((chat_api() + "register?name=") + url_encode(name)), register_cb);
         return 0n;
       }
     }
@@ -1527,7 +1530,7 @@ function register_cb__tb(__a0) {
           }
         } else {
           {
-            const s1 = local_storage_set("chat-token", tok);
+            const s1 = local_storage_set("codex-chat-token", tok);
             {
               const s2 = state_set_text("token", tok);
               {
@@ -1673,7 +1676,7 @@ function opening() {
       const s3 = set_render(render_chat);
       const h = register_handlers(no_pick, chat_click);
       const r = render_chat(0n);
-      const p = event_source_then("/api/chat/events", on_chat_event);
+      const p = event_source_then((chat_api() + "events"), on_chat_event);
       return check_auth(0n);
     })();
   })();

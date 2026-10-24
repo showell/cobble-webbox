@@ -22,7 +22,7 @@ system.
 From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 (`COBBLESTONE_ROOT` names another) and `../zig-webbox`, with Zig 0.17:
 
-    zig build serve-chat    # Codex Chat, http://localhost:9106 (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
+    zig build serve-chat    # Codex Chat, http://localhost:9106/codex-chat/ (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
     zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
     zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
@@ -35,8 +35,11 @@ read from the checkout on every request.
 - **`src/chat_app.zig`** is Codex Chat's site, in place of `apps/chat/web/server.ps1`:
   the page (`web/chat.html`: `ChatPage.codex` as the HTML plug builds it, by
   `codex/plugs/html/run.ps1` under QEMU, since the checked-in build threw on load) at
-  `/`, and every `/api/chat/*` request to ChatServer's `chat-route`, with the time
-  of day and two random tokens. `/api/chat/events` is an event stream (webbox's
+  `/codex-chat/`, and every `/codex-chat/api/chat/*` request to ChatServer's
+  `chat-route` (with the prefix taken off), with the time of day and two random
+  tokens. Every name it has on a host carries `codex-chat` (paths, bus key, disk
+  image, the page's localStorage key), so it can share a site with Gopher Chat;
+  the page asks for the API relative to itself. `api/chat/events` is an event stream (webbox's
   `sse.forward`): each change publishes `changed`, and every open page asks again
   with its own token. Its state is on a FAT16 image (`data/codex-chat.img`, a
   blank one made the first time by `src/fat16_blank.zig`), under `codex-chat/`:

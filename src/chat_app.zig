@@ -3,11 +3,21 @@
 //! disk, compiled to Zig (src/gen/chat.zig), in place of apps/chat/web/
 //! server.ps1, which served the same page and the same API.
 //!
-//!   GET /, /chat.html   the page: apps/chat/web/chat.html, Cobblestone's own
-//!                       build of ChatPage.codex (web/chat.html, compiled in)
-//!   /api/chat/*         ChatServer's `chat-route`, with what the host knows:
-//!                       the time of day (UTC, `HH:mm`) and a fresh token
-//!                       (16 hex digits, as server.ps1 cut its GUIDs)
+//!   GET /codex-chat/              the page: Cobblestone's own build of
+//!                                 ChatPage.codex (web/chat.html, compiled in)
+//!   GET /codex-chat/api/chat/events  the event stream: `changed` after each
+//!                                 change
+//!   /codex-chat/api/chat/*        ChatServer's `chat-route`, given the path
+//!                                 without the prefix, with what the host
+//!                                 knows: the time of day (UTC, `HH:mm`) and
+//!                                 a fresh token (16 hex digits, as
+//!                                 server.ps1 cut its GUIDs)
+//!
+//! **EVERY NAME IT HAS ON A HOST CARRIES `codex-chat`**: its paths, its bus
+//! key, its disk image (and the page's localStorage key), so it can share a
+//! site with Gopher Chat (which owns `/chat`, `/channel`, `/login` and `/`,
+//! among others) without one in common. The page asks for the API relative
+//! to itself, so ChatServer's own paths stay `/api/chat/*`.
 //!
 //! **THE STATE IS ON A DISK CODEX DRIVES.** `disk_path` is a FAT16 volume
 //! (a blank one is made the first time, src/fat16_blank.zig); ChatStore
@@ -88,11 +98,18 @@ const changing = [_][]const u8{ "/api/chat/register", "/api/chat/send", "/api/ch
 /// The bus key every page's event stream listens on. A change publishes
 /// `changed` and nothing else: each page asks again with its own token, as
 /// ChatServe's streams on bare metal have it.
-const events_key = "chat";
+const events_key = "codex-chat";
+
+/// Where everything this chat serves lives on a site.
+pub const prefix = "/codex-chat";
 
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, bus: *webbox.bus.Bus) !void {
-    const target = try http.target(req, alloc);
-    const path = http.pathOf(target);
+    const whole = try http.target(req, alloc);
+    const sub = http.pathUnder(http.pathOf(whole), prefix) orelse return http.notFound(req);
+    // The page's relative URLs need the trailing slash to resolve under it.
+    if (sub.len == 0) return http.redirect(req, prefix ++ "/");
+    const target = whole[prefix.len..];
+    const path = sub;
     if (std.mem.eql(u8, path, "/") or std.mem.eql(u8, path, "/chat.html")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return req.respond(@embedFile("chat_page"), .{ .extra_headers = &.{http.html_ct} });
