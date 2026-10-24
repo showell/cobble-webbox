@@ -115,9 +115,9 @@ is merged.
   x86 and their scope rows in the type checker (`codex/test/fs-ops`,
   `codex/test/errors/fs-ops-computed-scope`); and the ZigEmitter turns all five
   FileSystem ops into calls on the program's host (`cx_file_host`). Tested with
-  a compiler built from the fork by the seed under QEMU (about 100 s: Damian's
-  `concat-codex-self.ps1` needs its backslash paths fixed to run under Linux
-  pwsh, in a scratch copy).
+  a compiler built from the fork by the seed under QEMU: **`tools/compiler.shale`**
+  (about 100 s; Damian's `concat-codex-self.ps1` spells paths with backslashes,
+  so the recipe runs a corrected copy).
 - GameServer: a new Yahtzee game's dice sent as they are ([#160](https://github.com/damiant3/Cobblestone/pull/160)),
   and Spider's suggested move decoded with `sp-decode-move` ([#161](https://github.com/damiant3/Cobblestone/pull/161)).
   Each trapped on an out-of-bounds `list-at`, on bare metal as in Zig: behind
