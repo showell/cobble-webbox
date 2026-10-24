@@ -80,13 +80,13 @@ read from the checkout on every request.
   request to request lives in the site.
 - **`src/gen/games.zig`** is generated: GameServer.codex and the 42 chapters it
   cites, transpiled by codexzig (from
-  [codex-zig-transpiler](https://github.com/showell/codex-zig-transpiler)), then
-  reshaped into a library by **`tools/regen.shale`**: no `main`, Console output
-  through a host's hook, a `LibraryRoots` chapter so the emitter's shake keeps
-  what the host's face uses, and the faces in **`src/library.zig.in`** and each
-  application's `src/*_api.zig.in` appended. That script is the ZigEmitter's
-  library mode until the emitter has one; `src/gen/ideas.zig` is the same for
-  IdeaWeb.codex.
+  [codex-zig-transpiler](https://github.com/showell/codex-zig-transpiler)) in the
+  ZigEmitter's library mode (our fork): **`tools/regen.shale`** bundles each
+  application and declares its exports (`zig-library`), and the library has no
+  `main`, its exports `pub`, and a `cx` face for the heap the host gives and for
+  text across the edge. Each `src/*_api.zig` wraps a library for its site
+  (`os_heap.zig` gives the Linux-only ones their heap). `src/gen/ideas.zig`,
+  `chat.zig` and `uo*.zig` are the same for their chapters.
 - **`tools/codexzig.shale`** rebuilds codexzig natively from the Cobblestone
   checkout, so an emitter change needs no QEMU: three passes, and the third must
   equal the second byte for byte.
@@ -110,6 +110,9 @@ is merged.
   finds the first boot's state and appends to it. `ChatServe.codex` serves it on
   bare metal (WebServer's concurrent loop, with the same event stream), and
   ChatPage listens to the stream (`event-source-then`, a new HTML plug primitive).
+- ZigEmitter: a library mode (`zig-library : Text = "|a|b|"`, which the build adds:
+  the exports `pub` and the prune's roots, no `main`, a `cx` face), and the
+  prune roots a chapter with no `opening` at its exports.
 - ZigEmitter: `poke-qword` and `peek-16` (built from `poke-32` and `peek-byte`, taking no
   prelude part: the table is at 127 of 128), the PIT constants `pit-input-hz` and `pit-count`, and closures of
   arity 6, which uoaix's proofs need.

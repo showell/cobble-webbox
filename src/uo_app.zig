@@ -18,9 +18,9 @@ const std = @import("std");
 const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
-const vendor = @import("gen/uo.zig").api;
-const town = @import("gen/uo_town.zig").api;
-const watch = @import("gen/uo_watch.zig").api;
+const vendor = @import("uo_api.zig").vendor;
+const town = @import("uo_api.zig").town;
+const watch = @import("uo_watch_api.zig").api;
 
 pub const prefix = "/uo";
 

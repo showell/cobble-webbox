@@ -19,7 +19,7 @@ const std = @import("std");
 const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
-const games = @import("gen/games.zig").api;
+const games = @import("games_api.zig").api;
 const onBigStack = @import("stack.zig").onBigStack;
 
 /// The Cobblestone checkout the pages come from; main.zig sets it from
@@ -40,6 +40,7 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     _ = io;
     _ = base;
     _ = roots;
+    try games.useOsHeap();
     store = onBigStack(games.newStore, .{});
     dispatched = 0;
     return .{ .cobble_root = cobble_root };

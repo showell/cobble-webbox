@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const app = @import("app.zig");
-const games = @import("gen/games.zig").api;
+const games = @import("games_api.zig").api;
 
 /// One request on the chapter's own stack, as the site makes it: the next
 /// store, and the answer parsed.
@@ -29,6 +29,7 @@ test "tic-tac-toe through GameServer: a new game, then steps until perfect play 
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+    try games.useOsHeap();
     var store = games.newStore();
     const first = try ask(&store, "GET /api/tictactoe/new");
     try std.testing.expectEqual(@as(u10, 200), first.status);
@@ -48,6 +49,7 @@ test "tic-tac-toe through GameServer: a new game, then steps until perfect play 
 }
 
 test "an unknown game is GameServer's own 404, and a step with no game its 400" {
+    try games.useOsHeap();
     var store = games.newStore();
     const nf = try ask(&store, "GET /api/nosuchgame/new");
     try std.testing.expectEqual(@as(u10, 404), nf.status);

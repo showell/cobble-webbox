@@ -22,34 +22,34 @@ fn sink(line: []const u8) void {
     printed.append(std.testing.allocator, '\n') catch @panic("oom");
 }
 
-fn expectProof(comptime lib: type, comptime name: []const u8, expected: []const u8) !void {
+fn expectProof(comptime proof: type, comptime name: []const u8, expected: []const u8) !void {
     const region = try std.heap.page_allocator.alignedAlloc(u8, .fromByteUnits(4096), heap_region);
     defer std.heap.page_allocator.free(region);
     @memset(region, 0);
-    lib.api.heapGive(region);
+    proof.heapGive(region);
     printed = .empty;
     defer printed.deinit(std.testing.allocator);
 
     const Run = struct {
         fn run() void {
-            lib.api.runProof(sink);
+            proof.runProof(sink);
         }
     };
     @import("stack.zig").onStack(request_stack, Run.run, .{});
 
-    std.debug.print("uo {s}: {d} bytes of Codex heap\n", .{ name, lib.api.heapUsed() });
+    std.debug.print("uo {s}: {d} bytes of Codex heap\n", .{ name, proof.heapUsed() });
     try std.testing.expectEqualStrings(expected, printed.items);
 }
 
 test "the vendor proof answers as its expected file, on a request's stack, in a host's region" {
-    try expectProof(@import("gen/uo.zig"), "vendor proof", @embedFile("uo_expected"));
+    try expectProof(@import("uo_api.zig").vendor, "vendor proof", @embedFile("uo_expected"));
 }
 
 test "the town proof answers as its expected file, on a request's stack, in a host's region" {
-    try expectProof(@import("gen/uo_town.zig"), "town proof", @embedFile("uo_town_expected"));
+    try expectProof(@import("uo_api.zig").town, "town proof", @embedFile("uo_town_expected"));
 }
 
-const watch = @import("gen/uo_watch.zig").api;
+const watch = @import("uo_watch_api.zig").api;
 
 /// What a ticking host keeps: the town built once, then brought forward
 /// 30 game seconds at a time (the host's quarter-second tick at 120 game

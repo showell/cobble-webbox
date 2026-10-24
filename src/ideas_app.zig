@@ -25,7 +25,7 @@ const std = @import("std");
 const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
-const ideas = @import("gen/ideas.zig").api;
+const ideas = @import("ideas_api.zig").api;
 const onBigStack = @import("stack.zig").onBigStack;
 
 /// One handler runs at a time (webbox's hosts), so it is shared plainly.
@@ -38,6 +38,7 @@ pub const StartReport = struct {};
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     _ = base;
     _ = roots;
+    try ideas.useOsHeap();
     state = onBigStack(ideas.newState, .{});
     opened_ns = Io.Clock.now(.awake, io).nanoseconds;
     return .{};

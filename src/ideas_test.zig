@@ -3,7 +3,7 @@
 //! reserves its seed for good, and the ledger shows it.
 
 const std = @import("std");
-const ideas = @import("gen/ideas.zig").api;
+const ideas = @import("ideas_api.zig").api;
 const statusOf = @import("ideas_app.zig").statusOf;
 
 const House = struct {
@@ -32,6 +32,7 @@ test "a deal, a second deal the same day refused, a claim, and the ledger" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+    try ideas.useOsHeap();
     var house: House = .{ .state = ideas.newState() };
 
     const health = try house.ask("alice", 0, "/api/health");

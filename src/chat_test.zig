@@ -7,7 +7,7 @@
 
 const std = @import("std");
 const store = @import("webbox").store;
-const chat = @import("gen/chat.zig").api;
+const chat = @import("chat_api.zig").api;
 const chat_files = @import("chat_files.zig");
 const ChatHost = @import("chat_host.zig");
 
