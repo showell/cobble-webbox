@@ -1,0 +1,66 @@
+-- **DAMIAN'S COMPILER, BUILT FROM THE COBBLESTONE CHECKOUT BY ITS SEED, ON
+-- LINUX**: build.ps1's first two phases (concatenate codex/compiler into one
+-- unit; compile it with seed/Codex.cdx under QEMU), so a change to the
+-- compiler or the foreword it carries can be tested on bare metal without
+-- codex-vm. About 100 s, nearly all of it the compile.
+--
+-- build/concat-codex-self.ps1 is generated and says not to edit it, and it
+-- does not run under Linux pwsh: it spells paths with backslashes (two
+-- literals, and the order manifest's rows as it reads them), which Join-Path
+-- on Linux takes as part of one file name. This writes a copy with those
+-- turned to `/` and its repo root named, and build/quire-map.ps1 beside it
+-- with its own root named, into .zig-cache/linuxbuild/; each change is held
+-- to occurring exactly once, so an upstream change to either script stops
+-- this rather than build from a copy that drifted.
+--
+--   cd ~/showell_repos/cobble-webbox && shale tools/compiler.shale
+--
+-- Then a test compiles with it as `pwsh build/compile.ps1 ... -Kernel
+-- <out>`. `cobble` is the checkout (default the box's `cobble:` mount),
+-- `out` the compiler (default .zig-cache/compiler.cdx).
+--
+-- budget: steps=200000000 arena_bytes=1000000000
+
+const COBBLE = arg("cobble", "cobble:")
+const OUT = arg("out", ".zig-cache/compiler.cdx")
+const PWSH = "/home/steve/.local/pwsh/pwsh"
+const WORK = ".zig-cache/linuxbuild"
+
+-- `rel` inside the checkout: a mount's root takes no `/` after its colon.
+function in_cobble(rel)
+  if ends_with(COBBLE, ":") then return COBBLE .. rel end
+  return path(COBBLE, rel)
+end
+
+-- `old` replaced by `new` in `s`, where `old` occurs exactly once.
+function once(s, old, new, what)
+  local at = find(s, old)
+  if at == nil then fail(what .. ": not in the script any more: " .. old) end
+  if find(s, old, at + 1) ~= nil then fail(what .. ": more than once: " .. old) end
+  return substitute(s, old, new)
+end
+
+local repo = real(COBBLE)
+mkdir(WORK)
+
+local concat = read(in_cobble("build/concat-codex-self.ps1"))
+concat = once(concat, "$Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path", "$Repo = '" .. repo .. "'", "the repo root")
+concat = once(concat, "'codex\\compiler'", "'codex/compiler'", "the compiler folder")
+concat = once(concat, "'codex\\foreword\\core'", "'codex/foreword/core'", "the foreword folder")
+concat = once(concat, "'build\\compiler-order.txt'", "'build/compiler-order.txt'", "the order manifest")
+concat = once(concat, "ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' -and (-not $_.StartsWith('#')) }", "ForEach-Object { $_.Trim().Replace('\\', '/') } | Where-Object { $_ -ne '' -and (-not $_.StartsWith('#')) }", "the manifest's rows")
+replace(path(WORK, "concat-codex-self.ps1"), concat)
+
+local quires = read(in_cobble("build/quire-map.ps1"))
+quires = once(quires, "$quireCatalogRoot = Split-Path $PSScriptRoot", "$quireCatalogRoot = '" .. repo .. "'", "quire-map's root")
+replace(path(WORK, "quire-map.ps1"), quires)
+
+local unit = real(WORK) .. "/Codex.codex"
+run({PWSH, "-NoProfile", "-File", real(WORK) .. "/concat-codex-self.ps1", "-OutFile", unit},
+  {timeout_ms = 120000, tail = 20, want = "pwsh-compile: Damian's compiler concatenation is a PowerShell script"})
+print("the unit: " .. stat(path(WORK, "Codex.codex")).size .. " bytes")
+
+local out = real(".") .. "/" .. OUT
+run({PWSH, "-NoProfile", "-File", repo .. "/build/compile.ps1", "-Src", unit, "-Out", out, "-Log", real(WORK) .. "/compiler.log", "-Repl", "-Kernel", repo .. "/seed/Codex.cdx", "-TimeoutSec", "7200"},
+  {cwd = COBBLE, timeout_ms = 1800000, tail = 20, want = "pwsh-compile: Damian's seed compiler is a PowerShell script driving QEMU"})
+print(OUT .. ": " .. stat(OUT).size .. " bytes, built by the seed from " .. repo)
