@@ -1,0 +1,68 @@
+-- **CODEXZIG FROM THE CHECKOUT, WITH NO GUEST**: the transpiler rebuilt
+-- from the Cobblestone checkout's own chapters (our fork's branch, its
+-- ZigEmitter changes in them) by the codexzig already built, then checked
+-- as codex-zig-transpiler's build checks it: the new binary, handed the
+-- same source, must emit the same bytes.
+--
+--   1. the subject: codex-zig-transpiler's source/bundle_codexzig.ps1 and
+--      resolve_unit.ps1, read from the checkout (COBBLESTONE_ROOT);
+--   2. pass A: .zig-cache/codexzig (the one built now) transpiles it;
+--      built (Zig 0.16) into codexzig.a;
+--   3. pass B: codexzig.a transpiles it again; built into codexzig.b;
+--   4. pass C: codexzig.b transpiles it once more, and C must equal B:
+--      the emitter emits itself the same whichever build of it runs. Then
+--      codexzig.b becomes .zig-cache/codexzig, the old one kept as
+--      codexzig.prev.
+--
+--   cd ~/showell_repos/cobble-webbox && shale tools/codexzig.shale
+--
+-- Each pass holds about 3.5 GB and takes about a minute: one at a time.
+--
+-- budget: steps=200000000 arena_bytes=2500000000
+
+const COBBLE = arg("cobble", "cobble:")
+const TRANSPILER = arg("transpiler", "repos:codex-zig-transpiler")
+const ZIG016 = arg("zig016", "zig016:zig")
+const PWSH = arg("pwsh", "/home/steve/.local/pwsh/pwsh")
+
+function under(dir, rel)
+  if ends_with(dir, ":") then return dir .. rel end
+  return dir .. "/" .. rel
+end
+
+local cache = real(".zig-cache")
+local subject = cache .. "/codexzig-subject.codex"
+local env = {COBBLESTONE_ROOT = real(COBBLE)}
+local src = under(TRANSPILER, "source")
+must(run({PWSH, "-NoProfile", "-File", real(under(src, "bundle_codexzig.ps1")), "-OutFile", subject}, {cwd = src, env = env, timeout_ms = 300000, tail = 3, want = "pwsh-bundle: the transpiler's bundler is PowerShell"}))
+must(run({PWSH, "-NoProfile", "-File", real(under(src, "resolve_unit.ps1")), "-File", subject}, {cwd = src, env = env, timeout_ms = 300000, tail = 3, want = "pwsh-bundle: the transpiler's resolver is PowerShell"}))
+print("the subject: " .. stat(".zig-cache/codexzig-subject.codex").size .. " bytes")
+
+-- `bin` transpiles the subject into `out` (its diagnostics left out: a
+-- diagnostic line is never Zig); the Zig's bytes.
+function transpile(bin, out)
+  local r = must(run({bin}, {timeout_ms = 900000, whole = 67108864, stdin = read(".zig-cache/codexzig-subject.codex"), want = "codexzig: built into .zig-cache by this script"}))
+  local kept = {}
+  for l in lines(r.out) do
+    if not (starts_with(l, "CDX") or starts_with(l, "codexzig:")) then push(kept, l) end
+  end
+  local zig = join(kept, "\n")
+  replace(out, zig)
+  print(out .. ": " .. #zig .. " bytes in " .. (r.ms // 1000) .. " s")
+  return zig
+end
+
+function build(zig_path, bin_name)
+  must(run({real(ZIG016), "build-exe", real(zig_path), "-O", "ReleaseSafe", "-femit-bin=" .. bin_name}, {cwd = ".zig-cache", timeout_ms = 900000, tail = 20}))
+end
+
+transpile(cache .. "/codexzig", ".zig-cache/codexzig.a.zig")
+build(".zig-cache/codexzig.a.zig", "codexzig.a")
+local b = transpile(cache .. "/codexzig.a", ".zig-cache/codexzig.b.zig")
+build(".zig-cache/codexzig.b.zig", "codexzig.b")
+local c = transpile(cache .. "/codexzig.b", ".zig-cache/codexzig.c.zig")
+if b ~= c then fail("codexzig: pass C differs from pass B: the emitter does not emit itself the same (diff .zig-cache/codexzig.b.zig .zig-cache/codexzig.c.zig)") end
+print("the fixed point holds: pass C is pass B, byte for byte")
+must(run({"mv", "-f", "codexzig", "codexzig.prev"}, {cwd = ".zig-cache", timeout_ms = 10000, tail = 2}))
+must(run({"mv", "codexzig.b", "codexzig"}, {cwd = ".zig-cache", timeout_ms = 10000, tail = 2}))
+print(".zig-cache/codexzig is the new one; the old is codexzig.prev")

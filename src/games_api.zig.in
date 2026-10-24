@@ -1,0 +1,61 @@
+
+// ========================================================================
+// THE LIBRARY'S FACE (cobble-webbox, src/games_api.zig.in, appended by
+// tools/regen.shale): what library mode will emit for a chapter a host
+// calls instead of runs. In this file, so it reaches the chapter's own
+// definitions, which the emitter leaves private.
+// ========================================================================
+
+/// What a host calls. The names are GameServer.codex's: the store it
+/// threads from request to request, a fresh one, and its dispatch, which
+/// answers by printing one line, `STATUS TYPE BODY` (apps/games/server.ps1's
+/// protocol, unchanged).
+pub const api = struct {
+    pub const Store = GameStore;
+
+    pub fn newStore() Store {
+        return game_store_new();
+    }
+
+    /// One request line (`GET /api/tictactoe/step`, as server.ps1 builds
+    /// it), ASCII: the next store, and the first line the chapter printed
+    /// (null if it printed none), UTF-8, valid until the next call.
+    pub fn dispatch(store: Store, line: []const u8) error{NotAscii}!struct { store: Store, printed: ?[]const u8 } {
+        const cce = try asciiToCce(line);
+        printed_first = null;
+        cx_host_print = capture;
+        defer cx_host_print = null;
+        const next = dispatch_request(store, cce);
+        return .{ .store = next, .printed = printed_first };
+    }
+
+    /// The bump frontier, for a host that brackets work it can throw away
+    /// (`__heap-save` and `__heap-restore`'s pair). The store lives on the
+    /// same heap, so a host that keeps it may not rewind past its making.
+    pub fn heapMark() i64 {
+        return cx_hp;
+    }
+};
+
+var printed_first: ?[]const u8 = null;
+
+fn capture(line: []const u8) void {
+    if (printed_first == null) printed_first = line;
+}
+
+/// ASCII as the chapter's text holds it (CCE): each byte the code whose
+/// code point it is, by the runtime's own table; a byte that is no ASCII,
+/// or ASCII the table does not hold, is refused.
+fn asciiToCce(s: []const u8) error{NotAscii}![]const u8 {
+    const out = cx_raw(u8, s.len);
+    for (s, 0..) |c, i| out[i] = ascii_to_cce[c] orelse return error.NotAscii;
+    return out;
+}
+
+const ascii_to_cce: [256]?u8 = blk: {
+    var t: [256]?u8 = @splat(null);
+    for (cce_table, 0..) |cp, code| {
+        if (cp < 128 and t[cp] == null) t[cp] = @intCast(code);
+    }
+    break :blk t;
+};
