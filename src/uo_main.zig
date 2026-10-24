@@ -1,6 +1,6 @@
 //! uoaix's first proofs, served: webbox's Linux host with uo_app.zig.
 //!
-//! Run:  zig build serve-uo       (on http://localhost:9107/uo/vendor-proof, /uo/town-proof)
+//! Run:  zig build serve-uo       (on http://localhost:9107/uo/town/)
 
 const std = @import("std");
 const webbox = @import("webbox");
@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_port = 9107,
         .default_trusted_proxy = "127.0.0.1",
         .default_auth_dir = "auth",
-        .routes_hint = "(/uo/vendor-proof, /uo/town-proof)",
+        .routes_hint = "(/uo/town/, /uo/vendor-proof, /uo/town-proof)",
         .free_space = unread,
     }, report);
 }
@@ -32,5 +32,8 @@ fn unread(_: *const std.process.Environ.Map) webbox.free_space.FreeSpace {
 }
 
 fn report(started: *const site.Started) void {
-    _ = started;
+    if (started.app.problem.len > 0) {
+        std.debug.print("uo: no town: {s}\n", .{started.app.problem});
+        std.process.exit(1);
+    }
 }

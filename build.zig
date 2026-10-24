@@ -64,10 +64,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = imports,
     }) });
+    uo_exe.root_module.addAnonymousImport("uo_town_page", .{ .root_source_file = b.path("web/uo-town.html") });
     b.installArtifact(uo_exe);
     const serve_uo = b.addRunArtifact(uo_exe);
     serve_uo.step.dependOn(b.getInstallStep());
-    b.step("serve-uo", "Serve uoaix's proofs on http://localhost:9107/uo/vendor-proof and /uo/town-proof (UO_PORT)").dependOn(&serve_uo.step);
+    b.step("serve-uo", "Serve uoaix's proofs and live town on http://localhost:9107/uo/town/ (UO_PORT)").dependOn(&serve_uo.step);
 
     // **CODEX CHAT AS A MODULE**, for a site that serves it among its own
     // routes (angry-gopher, under /codex-chat): src/chat_app.zig's setup,

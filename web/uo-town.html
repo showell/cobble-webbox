@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Britain, Watched</title>
+<style>
+  :root { --bg: #1d2318; --ink: #efe6cf; --dim: #a99f86; --panel: #2a3123; --line: #4a523d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 Georgia, serif; }
+  header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; font-weight: normal; letter-spacing: 0.5px; }
+  #clock { font-variant-numeric: tabular-nums; color: var(--dim); }
+  #live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #7a7; margin-right: 6px; }
+  #live.off { background: #c55; }
+  main { display: flex; gap: 12px; padding: 0 16px 16px; flex-wrap: wrap; }
+  #stage { flex: 1 1 360px; min-width: 0; }
+  canvas { display: block; width: 100%; border-radius: 6px; touch-action: manipulation; }
+  aside { flex: 0 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .box h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 0 0 6px; font-weight: normal; }
+  #crier { max-height: 340px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  #crier li { padding: 3px 0; border-bottom: 1px dotted var(--line); }
+  #crier .t { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  #card { min-height: 3em; }
+  .hint { color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Britain, watched</h1>
+  <span id="clock"><span id="live" class="off"></span><span id="time">connecting…</span></span>
+</header>
+<main>
+  <div id="stage"><canvas id="map"></canvas></div>
+  <aside>
+    <div class="box"><h2>Following</h2><div id="card" class="hint">Tap a townsperson to follow them.</div></div>
+    <div class="box"><h2>The town crier</h2><ul id="crier"></ul></div>
+  </aside>
+</main>
+<script>
+// The residents of apps/uoaix's TownWatch: their jobs and activities as
+// Townsfolk.md numbers them.
+const JOBS = { 0: ["townsperson", "🧑"], 1: ["farmer", "🌾"], 2: ["baker", "🍞"], 3: ["smith", "⚒️"], 4: ["vendor", "🧵"] };
+const DOING = ["goes to bed", "heads to work", "sits down to a meal", "goes to market", "heads for the tavern",
+               "goes to worship", "visits family", "rests at home"];
+const AT = ["asleep", "at work", "at a meal", "at market", "at the tavern", "at worship", "with family", "resting at home"];
+const COLORS = ["#d9a441", "#8fb3d9", "#d98fb3", "#9fd98f", "#d9c38f"];
+
+const canvas = document.getElementById("map"), ctx = canvas.getContext("2d");
+// The ground (grass, worn paths, shops), painted once offscreen and
+// touched only where a path wears in; each frame copies it and draws the
+// people over it.
+const ground = document.createElement("canvas"), gctx = ground.getContext("2d");
+let map = null, tile = 4, people = [], prev = {}, lastAt = 0, seconds = 0, following = null, wornSince = false;
+const worn = new Map();   // tile -> footfall: the town's paths, worn in by walking
+const seen = {};          // name -> last activity, for the crier
+
+function hhmm(s) {
+  const d = Math.floor(s / 86400) + 1, h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return { day: d, text: String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"), hour: h + m / 60 };
+}
+
+function fit() {
+  if (!map) return;
+  const w = document.getElementById("stage").clientWidth;
+  const h = Math.max(320, window.innerHeight - 90);
+  tile = Math.max(2, Math.min(w / map.width, h / map.height));
+  canvas.width = Math.round(map.width * tile * devicePixelRatio);
+  canvas.height = Math.round(map.height * tile * devicePixelRatio);
+  canvas.style.height = (map.height * tile) + "px";
+  ground.width = canvas.width; ground.height = canvas.height;
+  paintGround();
+}
+
+function groundTile(x, y) {   // map-relative tile
+  const T = tile * devicePixelRatio, g = grass(x, y), w = worn.get((x + map.x) + "," + (y + map.y)) || 0;
+  const v = Math.min(1, w / 12);
+  gctx.fillStyle = `rgb(${Math.round(58 + g * 14 + v * 70)},${Math.round(92 + g * 18 + v * 20)},${Math.round(44 + g * 8 + v * 30)})`;
+  gctx.fillRect(x * T, y * T, T + 1, T + 1);
+}
+
+function paintShops() {
+  const d = devicePixelRatio, T = tile * d;
+  gctx.textAlign = "center";
+  for (const s of map.shops) {
+    const x = (s.x1 - map.x) * T, y = (s.y1 - map.y) * T, w = (s.x2 - s.x1 + 1) * T, h = (s.y2 - s.y1 + 1) * T;
+    gctx.fillStyle = "#b9a27a"; gctx.fillRect(x, y, w, h);
+    gctx.strokeStyle = "#5e4b2f"; gctx.lineWidth = d * 1.5; gctx.strokeRect(x, y, w, h);
+    gctx.fillStyle = "#f3ead2"; gctx.font = `${Math.max(9, T * 2.2)}px Georgia`;
+    gctx.fillText(s.premises, x + w / 2, y - T * 0.6);
+  }
+}
+
+function paintGround() {
+  for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) groundTile(x, y);
+  paintShops();
+}
+
+function grass(x, y) {   // a cheap hash, so the grass is the same every frame
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function crier(text) {
+  const li = document.createElement("li");
+  li.innerHTML = `<span class="t">Day ${hhmm(seconds).day} ${hhmm(seconds).text}</span>`;
+  li.append(text);
+  const list = document.getElementById("crier");
+  list.prepend(li);
+  while (list.children.length > 60) list.lastChild.remove();
+}
+
+function take(snapshot) {
+  const now = performance.now();
+  prev = {};
+  for (const p of people) prev[p.name] = { x: p.drawX ?? p.x, y: p.drawY ?? p.y };
+  seconds = snapshot.seconds;
+  people = snapshot.people;
+  lastAt = now;
+  for (const p of people) {
+    const k = p.x + "," + p.y, was = worn.get(k) || 0;
+    if (was < 40) {
+      worn.set(k, was + 1);
+      if (map && was < 12) { groundTile(p.x - map.x, p.y - map.y); wornSince = true; }
+    }
+    const [job] = JOBS[p.job] || JOBS[0];
+    if (seen[p.name] !== undefined && seen[p.name] !== p.activity) crier(`${p.name} the ${job} ${DOING[p.activity] || "wanders"}.`);
+    seen[p.name] = p.activity;
+  }
+  // A path worn over a shop's label: the labels go back on top.
+  if (wornSince) { paintShops(); wornSince = false; }
+  const t = hhmm(seconds);
+  document.getElementById("time").textContent = `Day ${t.day}, ${t.text}`;
+  showCard();
+}
+
+function showCard() {
+  const card = document.getElementById("card");
+  const p = people.find(q => q.name === following);
+  if (!p) return;
+  const [job, face] = JOBS[p.job] || JOBS[0];
+  const shop = map.shops.find(s => p.x >= s.x1 - 3 && p.x <= s.x2 + 3 && p.y >= s.y1 - 3 && p.y <= s.y2 + 3);
+  card.classList.remove("hint");
+  card.textContent = `${face} ${p.name}, the ${job}: ${AT[p.activity] || "about"}, ` +
+    (shop ? `by ${shop.premises}.` : `out in the town (${p.x}, ${p.y}).`);
+}
+
+function draw() {
+  requestAnimationFrame(draw);
+  if (!map) return;
+  const d = devicePixelRatio, T = tile * d;
+  const sx = x => (x - map.x) * T, sy = y => (y - map.y) * T;
+  ctx.drawImage(ground, 0, 0);
+  ctx.textAlign = "center";
+  const hour = hhmm(seconds).hour, dark = hour < 5 || hour > 21 ? 0.55 : hour < 7 ? (7 - hour) * 0.27 : hour > 19 ? (hour - 19) * 0.27 : 0;
+  const f = Math.min(1, (performance.now() - lastAt) / 250);
+  people.forEach((p, i) => {
+    const from = prev[p.name] || p;
+    p.drawX = from.x + (p.x - from.x) * f;
+    p.drawY = from.y + (p.y - from.y) * f;
+    const x = sx(p.drawX) + T / 2, y = sy(p.drawY) + T / 2, r = Math.max(7 * d, T * 1.6);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS[i % COLORS.length]; ctx.fill();
+    if (p.name === following) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * d; ctx.stroke(); }
+    ctx.font = `${r * 1.2}px serif`; ctx.textBaseline = "middle";
+    ctx.fillText((JOBS[p.job] || JOBS[0])[1], x, y + r * 0.05);
+    ctx.textBaseline = "alphabetic"; ctx.font = `${Math.max(10, T * 2.4)}px Georgia`;
+    ctx.fillStyle = "#fff"; ctx.fillText(p.name, x, y - r - 3 * d);
+  });
+  if (dark > 0) { ctx.fillStyle = `rgba(10,14,40,${dark})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+}
+
+canvas.addEventListener("click", e => {
+  const b = canvas.getBoundingClientRect();
+  const x = (e.clientX - b.left) / tile + map.x, y = (e.clientY - b.top) / tile + map.y;
+  let best = null, dist = 6;
+  for (const p of people) { const dd = Math.hypot(p.drawX + 0.5 - x, p.drawY + 0.5 - y); if (dd < dist) { dist = dd; best = p; } }
+  following = best ? best.name : null;
+  if (!best) { const c = document.getElementById("card"); c.classList.add("hint"); c.textContent = "Tap a townsperson to follow them."; }
+  showCard();
+});
+
+function listen() {
+  const live = document.getElementById("live");
+  const es = new EventSource("events");
+  es.onmessage = e => { live.classList.remove("off"); take(JSON.parse(e.data)); };
+  es.onerror = () => live.classList.add("off");
+}
+
+(async () => {
+  map = await (await fetch("map")).json();
+  fit();
+  window.addEventListener("resize", fit);
+  take(await (await fetch("now")).json());
+  crier("The town wakes. Watch the townsfolk go about their day.");
+  listen();
+  draw();
+})();
+</script>
+</body>
+</html>

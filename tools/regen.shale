@@ -39,6 +39,7 @@ const APPS = {
   {name = "chat", root = "apps/chat/ChatStore.codex", out = "src/gen/chat.zig", api = "src/chat_api.zig.in", metal = true},
   {name = "uo", root = "apps/uoaix/proofs/GameVendorReplay.codex", out = "src/gen/uo.zig", api = "src/uo_api.zig.in", metal = true},
   {name = "uo-town", root = "apps/uoaix/proofs/TownLiveProof.codex", out = "src/gen/uo_town.zig", api = "src/uo_api.zig.in", metal = true},
+  {name = "uo-watch", root = "apps/uoaix/TownWatch.codex", out = "src/gen/uo_watch.zig", api = "src/uo_watch_api.zig.in", metal = true},
 }
 
 -- **A LIBRARY FOR A HOST WITH NO OPERATING SYSTEM** (`metal`): what

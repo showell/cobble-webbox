@@ -24,7 +24,7 @@ From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 
     zig build serve-chat    # Codex Chat, http://localhost:9106/codex-chat/ (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
     zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
-    zig build serve-uo      # uoaix's proofs, http://localhost:9107/uo/vendor-proof and /uo/town-proof (UO_PORT)
+    zig build serve-uo      # uoaix's live town, http://localhost:9107/uo/town/, and two proofs (UO_PORT)
     zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
 
@@ -139,7 +139,11 @@ is merged.
   `GameVendorReplay` (real buy and sell packets against a vendor; about 75 MB of Codex
   heap) at `/uo/vendor-proof`, and `TownLiveProof` (three residents walking a
   128x224 town to lodging, work and tavern seats; about 24 MB) at `/uo/town-proof`.
-  The UO server itself does not run here yet.
+  And a live town: `apps/uoaix/TownWatch.codex` (our fork; TownLiveProof's town kept
+  between calls) built at start and ticked from `between` every 250 ms at 120 game
+  seconds a real one, watched at `/uo/town/` (`web/uo-town.html`, a canvas, over the
+  `/uo/town/events` stream). Three game days leave its Codex heap the same as one
+  (about 18 MB). The UO server itself does not run here yet.
 - A panic in one request ends the process.
 - The emitted runtime reserves its heap from the OS (4 GiB of address space, taken
   lazily) and never frees it: fine for a dev port, not yet for a 512 MB droplet.
