@@ -54,6 +54,9 @@ var host: ChatHost = undefined;
 /// it is part of; a server of its own (chat_main.zig) refuses to start.
 var problem: []const u8 = "not started";
 
+/// Whether `setup` has run: the files' host and the heap's region are its.
+var set_up = false;
+
 pub const StartReport = struct { files: []const u8, problem: []const u8 };
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
@@ -63,13 +66,16 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     const region = try base.alignedAlloc(u8, .fromByteUnits(4096), ChatHost.heap_region);
     @memset(region, 0);
     chat.heapGive(region);
+    set_up = true;
     refresh();
     return .{ .files = dir, .problem = problem };
 }
 
 /// The state read again from the files: at the start, and after something
-/// other than this chat changed them (a site's script on its store).
+/// other than this chat changed them (a site's script on its store). A site
+/// that never set the chat up has none to read.
 pub fn refresh() void {
+    if (!set_up) return;
     var why: []const u8 = "";
     if (ChatHost.start(&why)) |h| {
         host = h;
