@@ -19,18 +19,18 @@
 //! among others) without one in common. The page asks for the API relative
 //! to itself, so ChatServer's own paths stay `/api/chat/*`.
 //!
-//! **THE STATE IS ON A DISK CODEX DRIVES.** `disk_path` is a FAT16 volume
-//! (a blank one is made the first time, src/fat16_blank.zig); ChatStore
-//! reads it at the start and, after every request that changes anything
-//! (register, send, start, group: server.ps1's Save-State calls), writes
-//! what that request added, through the Fat16 foreword, whose sectors this
-//! host reads and writes in the image (`readSector`, `writeSector`). The
-//! files it keeps there, under `codex-chat/`, are the ones ChatStore keeps
-//! on bare metal: a file per account, per conversation, and each
-//! conversation's messages, appended.
+//! **THE STATE IS IN FILES THE HOST KEEPS.** ChatStore keeps them through
+//! the FileSystem effect, under `codex-chat/` in the host's data root
+//! (src/chat_files.zig, over webbox's store): a file per account, per
+//! conversation, and each conversation's messages, appended. It reads them
+//! at the start and, after every request that changes anything (register,
+//! send, start, group: server.ps1's Save-State calls), writes what that
+//! request added; the host makes it durable before the next response, as
+//! it does every store write. On bare metal the same files are on the boot
+//! volume, through the compiler's FAT16 handlers.
 //!
-//! A disk ChatStore will not trust with the next write (a missing account
-//! file, a file that does not parse) is not served: `setup` fails, saying
+//! Files ChatStore will not trust with the next write (a missing account
+//! file, a file that does not parse) are not served: `setup` fails, saying
 //! why.
 
 const std = @import("std");
@@ -38,51 +38,30 @@ const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
 const chat = @import("gen/chat.zig").api;
-const fat16_blank = @import("fat16_blank.zig");
+const chat_files = @import("chat_files.zig");
 const onBigStack = @import("stack.zig").onBigStack;
 
-/// The disk image; main.zig may set it from CHAT_DISK.
-pub var disk_path: []const u8 = "data/codex-chat.img";
+/// The data root when the host names none (a checkout); main.zig may set it
+/// from CHAT_DATA.
+pub var data_dir: []const u8 = "data";
 
-var disk: std.Io.File = undefined;
-var disk_io: Io = undefined;
 /// One handler runs at a time (webbox's hosts), so it is shared plainly.
 var state: chat.State = undefined;
 
-pub const StartReport = struct { disk: []const u8, made: bool };
+pub const StartReport = struct { files: []const u8 };
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     _ = base;
-    _ = roots;
-    disk_io = io;
-    var made = false;
-    if (std.fs.path.dirname(disk_path)) |dir| Io.Dir.cwd().createDirPath(io, dir) catch {};
-    disk = Io.Dir.cwd().openFile(io, disk_path, .{ .mode = .read_write }) catch |e| switch (e) {
-        error.FileNotFound => blk: {
-            try fat16_blank.create(io, disk_path);
-            made = true;
-            break :blk try Io.Dir.cwd().openFile(io, disk_path, .{ .mode = .read_write });
-        },
-        else => return e,
-    };
-    chat.useDisk(.{ .read = readSector, .write = writeSector });
+    const dir = if (roots) |r| r.data_dir else data_dir;
+    chat_files.use(io, dir);
+    chat.useFiles(chat_files.host(chat.FileHost));
     const loaded = onBigStack(chat.load, .{});
     if (loaded.problem.len > 0) {
-        std.log.err("codex chat: not serving {s}: {s}", .{ disk_path, loaded.problem });
-        return error.ChatDiskUntrusted;
+        std.log.err("codex chat: not serving the files under {s}: {s}", .{ dir, loaded.problem });
+        return error.ChatFilesUntrusted;
     }
     state = loaded.state;
-    return .{ .disk = disk_path, .made = made };
-}
-
-fn readSector(lba: u64, sector: *[512]u8) bool {
-    const n = disk.readPositionalAll(disk_io, sector, lba * 512) catch return false;
-    return n == 512;
-}
-
-fn writeSector(lba: u64, sector: *const [512]u8) bool {
-    disk.writePositionalAll(disk_io, sector, lba * 512) catch return false;
-    return true;
+    return .{ .files = dir };
 }
 
 /// No route reads a body: the page sends its parameters in the query, a
@@ -131,7 +110,6 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
             state = onBigStack(chat.load, .{}).state;
             return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
         }
-        try disk.sync(disk_io);
         bus.publish(events_key, "changed");
         break;
     };

@@ -37,20 +37,21 @@ read from the checkout on every request.
   `codex/plugs/html/run.ps1` under QEMU, since the checked-in build threw on load) at
   `/codex-chat/`, and every `/codex-chat/api/chat/*` request to ChatServer's
   `chat-route` (with the prefix taken off), with the time of day and two random
-  tokens. Every name it has on a host carries `codex-chat` (paths, bus key, disk
-  image, the page's localStorage key), so it can share a site with Gopher Chat;
-  the page asks for the API relative to itself. `api/chat/events` is an event stream (webbox's
-  `sse.forward`): each change publishes `changed`, and every open page asks again
-  with its own token. Its state is on a FAT16 image (`data/codex-chat.img`, a
-  blank one made the first time by `src/fat16_blank.zig`), under `codex-chat/`:
-  a file per account (`users/<n>.json`), per conversation
+  tokens. Every name it has on a host carries `codex-chat` (paths, bus key, its
+  files' folder, the page's localStorage key), so it can share a site with Gopher
+  Chat; the page asks for the API relative to itself. `api/chat/events` is an
+  event stream (webbox's `sse.forward`): each change publishes `changed`, and
+  every open page asks again with its own token. Its state is in files under
+  `codex-chat/` in the host's data root (`data/` in a checkout, `CHAT_DATA` for
+  another): a file per account (`users/<n>.json`), per conversation
   (`convs/<id>/conv.json`), and each conversation's messages, a line each
-  (`convs/<id>/messages.jsonl`). ChatStore reads them at the start; after every
-  request that changes anything it writes only what that request added, a
-  message by appending it, through Cobblestone's own Fat16 foreword, whose sectors
-  the host reads and writes in the image. A disk it cannot trust with the next
-  write (a missing account file, one that does not parse) is not served. Look
-  inside with mtools: `mtype -i data/codex-chat.img ::/codex-chat/convs/c1/messages.jsonl`.
+  (`convs/<id>/messages.jsonl`). ChatStore keeps them through Codex's FileSystem
+  effect, whose ops the ZigEmitter turns into calls on the program's host, here
+  **`src/chat_files.zig`** over webbox's store (FAT's rules on every host, and
+  on a droplet the attached volume, beside Gopher Chat's `chat/`). It reads them
+  at the start; after every request that changes anything it writes only what
+  that request added, a message by appending it. Files it cannot trust with the
+  next write (a missing account file, one that does not parse) are not served.
   ChatServer and ChatStore are new Codex, on our fork's `webbox` branch:
   Cobblestone's ChatServer was a stub, and server.ps1 the real server.
 
@@ -110,6 +111,13 @@ is merged.
   ChatPage listens to the stream (`event-source-then`, a new HTML plug primitive).
 - Fat16: `fat16-append-file`, which writes only the new bytes
   (`codex/test/fat16-append`).
+- FileSystem: `append-file`, `list-dir` and `make-dir`, with default handlers on
+  x86 and their scope rows in the type checker (`codex/test/fs-ops`,
+  `codex/test/errors/fs-ops-computed-scope`); and the ZigEmitter turns all five
+  FileSystem ops into calls on the program's host (`cx_file_host`). Tested with
+  a compiler built from the fork by the seed under QEMU (about 100 s: Damian's
+  `concat-codex-self.ps1` needs its backslash paths fixed to run under Linux
+  pwsh, in a scratch copy).
 - GameServer: a new Yahtzee game's dice sent as they are ([#160](https://github.com/damiant3/Cobblestone/pull/160)),
   and Spider's suggested move decoded with `sp-decode-move` ([#161](https://github.com/damiant3/Cobblestone/pull/161)).
   Each trapped on an out-of-bounds `list-at`, on bare metal as in Zig: behind

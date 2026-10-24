@@ -12,19 +12,19 @@
 pub const api = struct {
     pub const State = ChatState;
     pub const Mark = ChatStoreMark;
-    pub const BlockHost = CxBlockHost;
+    pub const FileHost = CxFileHost;
 
-    /// The disk ChatStore's FAT16 reads and writes: the host's sectors.
-    pub fn useDisk(host: ?BlockHost) void {
-        cx_block_host = host;
+    /// The files ChatStore keeps through the FileSystem effect: the host's.
+    pub fn useFiles(host: ?FileHost) void {
+        cx_file_host = host;
     }
 
     pub fn newState() State {
         return chat_state_new();
     }
 
-    /// The state on the disk's FAT16 volume (under `codex-chat/`), and why
-    /// the disk cannot be trusted with the next write: empty when it can.
+    /// The state in the host's files (under `codex-chat/`), and why they
+    /// cannot be trusted with the next write: empty when they can.
     pub const Loaded = struct { state: State, problem: []const u8 };
 
     pub fn load() Loaded {

@@ -54,11 +54,11 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(chat_exe);
     const serve_chat = b.addRunArtifact(chat_exe);
     serve_chat.step.dependOn(b.getInstallStep());
-    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106 (CHAT_PORT), its state on data/codex-chat.img (CHAT_DISK)").dependOn(&serve_chat.step);
+    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106/codex-chat/ (CHAT_PORT), its state in data/codex-chat/ (CHAT_DATA)").dependOn(&serve_chat.step);
 
     // The sites' own tests, and the libraries answering through the emitted Zig.
     const tests = b.step("test", "The sites' tests, and GameServer.codex's and IdeaWeb.codex's answers through the emitted Zig");
-    for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig", "src/chat_app.zig", "src/chat_test.zig", "src/fat16_blank.zig" }) |root| {
+    for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig", "src/chat_app.zig", "src/chat_test.zig" }) |root| {
         const m = b.createModule(.{
             .root_source_file = b.path(root),
             .target = target,
