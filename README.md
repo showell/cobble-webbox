@@ -4,6 +4,9 @@ Cobblestone's servers on [webbox](https://github.com/showell/zig-webbox): Damian
 server-side Codex compiled to Zig and served by webbox's Linux host, with no QEMU
 guest and no PowerShell bridge in front of it.
 
+- **Codex Chat** (`apps/chat`): `ChatServer.codex` and `ChatStore.codex`, a
+  chat whose state lives on a FAT16 disk Codex drives itself, on
+  http://localhost:9106.
 - **Idea Forge** (`apps/ideas`): `IdeaWeb.codex`, a reservation service for
   generated business ideas, on http://localhost:9105.
 - **The games** (`apps/games`): `GameServer.codex`, the server side of the 34
@@ -19,6 +22,7 @@ system.
 From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 (`COBBLESTONE_ROOT` names another) and `../zig-webbox`, with Zig 0.17:
 
+    zig build serve-chat    # Codex Chat, http://localhost:9106 (CHAT_PORT), on data/chat.img (CHAT_DISK)
     zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
     zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
@@ -27,6 +31,16 @@ The pages are Cobblestone's own (`apps/games/index.html`, `classic/web/*.html`),
 read from the checkout on every request.
 
 ## How it fits together
+
+- **`src/chat_app.zig`** is Codex Chat's site, in place of `apps/chat/web/server.ps1`:
+  the page Cobblestone builds (`web/chat.html`, copied from `apps/chat/web/`) at
+  `/`, and every `/api/chat/*` request to ChatServer's `chat-route`, with the time
+  of day and two random tokens. Its state is on a FAT16 image (`data/chat.img`, a
+  blank one made the first time by `src/fat16_blank.zig`): ChatStore reads it at
+  the start and writes `CHAT.JSN` after every request that changes anything,
+  through Cobblestone's own Fat16 foreword, whose sectors the host reads and writes
+  in the image. ChatServer and ChatStore are new Codex, on our fork's `webbox`
+  branch: Cobblestone's ChatServer was a stub, and server.ps1 the real server.
 
 - **`src/ideas_app.zig`** is Idea Forge's site: `apps/ideas/IdeaServer.codex`'s
   network shell and `run.ps1`'s bridge, replaced. Every request goes to
@@ -72,7 +86,14 @@ opinion goes to Cobblestone as a pull request, and lives on the branch until it
 is merged.
 
 - ZigEmitter: three forms Zig 0.17 refuses, rewritten in forms 0.16 and 0.17 both
-  take (b8b4f722).
+  take (b8b4f722); and the block device and process scope (`block-read-sector`,
+  `block-write-sector`, `process-get-scope`) as calls into the program's host,
+  so the Fat16 foreword runs on a host's disk.
+- Codex Chat's server and its store on disk: `apps/chat/ChatServer.codex` (the
+  routes server.ps1 served) and `ChatStore.codex` (the state as `CHAT.JSN` on the
+  FAT16 boot volume), with `codex/test/apps/chat-server` and `chat-store`. Both
+  answer the same on bare metal under QEMU, where chat-store, booted twice on one
+  disk, finds the first boot's state.
 - GameServer: a new Yahtzee game's dice sent as they are ([#160](https://github.com/damiant3/Cobblestone/pull/160)),
   and Spider's suggested move decoded with `sp-decode-move` ([#161](https://github.com/damiant3/Cobblestone/pull/161)).
   Each trapped on an out-of-bounds `list-at`, on bare metal as in Zig: behind

@@ -36,6 +36,7 @@ const PWSH = arg("pwsh", "/home/steve/.local/pwsh/pwsh")
 const APPS = {
   {name = "games", root = "apps/games/GameServer.codex", out = "src/gen/games.zig", api = "src/games_api.zig.in"},
   {name = "ideas", root = "apps/ideas/IdeaWeb.codex", out = "src/gen/ideas.zig", api = "src/ideas_api.zig.in"},
+  {name = "chat", root = "apps/chat/ChatStore.codex", out = "src/gen/chat.zig", api = "src/chat_api.zig.in"},
 }
 
 -- **LIBRARY MODE'S OWN ROOTS**, in Codex, so the emitter's shake keeps

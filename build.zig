@@ -42,9 +42,23 @@ pub fn build(b: *std.Build) void {
     serve_ideas.step.dependOn(b.getInstallStep());
     b.step("serve-ideas", "Serve Idea Forge on http://localhost:9105 (IDEAS_PORT)").dependOn(&serve_ideas.step);
 
+    // Codex Chat (apps/chat): zig build serve-chat. Its page, Cobblestone's
+    // own build of ChatPage.codex (apps/chat/web/chat.html), is compiled in.
+    const chat_exe = b.addExecutable(.{ .name = "codex-chat", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/chat_main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = imports,
+    }) });
+    withChatPage(b, chat_exe.root_module);
+    b.installArtifact(chat_exe);
+    const serve_chat = b.addRunArtifact(chat_exe);
+    serve_chat.step.dependOn(b.getInstallStep());
+    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106 (CHAT_PORT), its state on data/chat.img (CHAT_DISK)").dependOn(&serve_chat.step);
+
     // The sites' own tests, and the libraries answering through the emitted Zig.
     const tests = b.step("test", "The sites' tests, and GameServer.codex's and IdeaWeb.codex's answers through the emitted Zig");
-    for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig" }) |root| {
+    for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig", "src/chat_app.zig", "src/chat_test.zig", "src/fat16_blank.zig" }) |root| {
         const m = b.createModule(.{
             .root_source_file = b.path(root),
             .target = target,
@@ -52,8 +66,14 @@ pub fn build(b: *std.Build) void {
             .imports = imports,
         });
         if (std.mem.startsWith(u8, root, "src/ideas_")) withIdeaPage(b, m);
+        if (std.mem.startsWith(u8, root, "src/chat_")) withChatPage(b, m);
         tests.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = m })).step);
     }
+}
+
+/// The page chat_app.zig serves at `/`, as `@embedFile("chat_page")`.
+fn withChatPage(b: *std.Build, m: *std.Build.Module) void {
+    m.addAnonymousImport("chat_page", .{ .root_source_file = b.path("web/chat.html") });
 }
 
 /// The page ideas_app.zig serves at `/`, as `@embedFile("idea_forge_page")`.

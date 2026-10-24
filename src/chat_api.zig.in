@@ -1,0 +1,60 @@
+
+// ========================================================================
+// CODEX CHAT'S FACE (cobble-webbox, src/chat_api.zig.in, appended by
+// tools/regen.shale after src/library.zig.in).
+// ========================================================================
+
+/// What a host calls. The names are ChatServer.codex's and ChatStore.codex's:
+/// the state, a fresh one, the state as the disk holds it and the disk
+/// written, and `chat-route`, which takes the time of day and two fresh
+/// tokens from its host as ChatServer's prose says.
+pub const api = struct {
+    pub const State = ChatState;
+    pub const BlockHost = CxBlockHost;
+
+    /// The disk ChatStore's FAT16 reads and writes: the host's sectors.
+    pub fn useDisk(host: ?BlockHost) void {
+        cx_block_host = host;
+    }
+
+    pub fn newState() State {
+        return chat_state_new();
+    }
+
+    /// The state on the disk's FAT16 volume (`CHAT.JSN`), or a fresh one.
+    pub fn load() State {
+        return chat_store_load();
+    }
+
+    /// The state written to the disk; whether the write went through.
+    pub fn save(state: State) bool {
+        return chat_store_save(state);
+    }
+
+    pub const Answer = struct { state: State, status: []const u8, content_type: []const u8, body: []const u8 };
+
+    /// One request (method, target, body: ASCII), at `time` (`HH:mm`), with
+    /// two fresh tokens for the accounts it may make.
+    pub fn route(state: State, time: []const u8, token: []const u8, token_2: []const u8, method: []const u8, target: []const u8, body: []const u8) error{NotAscii}!Answer {
+        const host = cx_new(ChatHostS{
+            .ch_time = try asciiToCce(time),
+            .ch_token = try asciiToCce(token),
+            .ch_token_2 = try asciiToCce(token_2),
+        });
+        const req = cx_new(HttpRequestS{
+            .method = try asciiToCce(method),
+            .path_ = try asciiToCce(target),
+            .body = try asciiToCce(body),
+            .valid = true,
+        });
+        const pair = chat_route(state, host, req);
+        switch (pair.*) {
+            .MkTup2 => |t| return .{
+                .state = t[0],
+                .status = cx_cce_to_utf8(t[1].status),
+                .content_type = cx_cce_to_utf8(t[1].content_type),
+                .body = cx_cce_to_utf8(t[1].body),
+            },
+        }
+    }
+};
