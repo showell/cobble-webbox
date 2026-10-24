@@ -39,14 +39,14 @@ const webbox = @import("webbox");
 const http = webbox.http;
 const chat = @import("gen/chat.zig").api;
 const chat_files = @import("chat_files.zig");
-const onBigStack = @import("stack.zig").onBigStack;
+const ChatHost = @import("chat_host.zig");
 
 /// The data root when the host names none (a checkout); main.zig may set it
 /// from CHAT_DATA.
 pub var data_dir: []const u8 = "data";
 
 /// One handler runs at a time (webbox's hosts), so it is shared plainly.
-var state: chat.State = undefined;
+var host: ChatHost = undefined;
 
 pub const StartReport = struct { files: []const u8 };
 
@@ -55,12 +55,11 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     const dir = if (roots) |r| r.data_dir else data_dir;
     chat_files.use(io, dir);
     chat.useFiles(chat_files.host(chat.FileHost));
-    const loaded = onBigStack(chat.load, .{});
-    if (loaded.problem.len > 0) {
-        std.log.err("codex chat: not serving the files under {s}: {s}", .{ dir, loaded.problem });
-        return error.ChatFilesUntrusted;
-    }
-    state = loaded.state;
+    var problem: []const u8 = "";
+    host = ChatHost.start(&problem) catch |e| {
+        std.log.err("codex chat: not serving the files under {s}: {s}", .{ dir, problem });
+        return e;
+    };
     return .{ .files = dir };
 }
 
@@ -70,9 +69,6 @@ pub fn bodyLimit(path: []const u8) u64 {
     _ = path;
     return 4096;
 }
-
-/// The routes after which server.ps1 saved its state.
-const changing = [_][]const u8{ "/api/chat/register", "/api/chat/send", "/api/chat/start", "/api/chat/group" };
 
 /// The bus key every page's event stream listens on. A change publishes
 /// `changed` and nothing else: each page asks again with its own token, as
@@ -100,27 +96,14 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     var token: [16]u8 = undefined;
     timeOfDay(io, &time);
     freshToken(io, &token);
-    const mark = onBigStack(chat.mark, .{state});
-    const answer = onBigStack(routeOne, .{ &time, &token, @tagName(req.head.method), target }) catch
-        return req.respond("{\"error\":\"the request is not ASCII\"}", .{ .status = .bad_request, .extra_headers = &.{http.json_ct} });
-    for (changing) |c| if (std.mem.eql(u8, path, c)) {
-        if (!onBigStack(chat.save, .{ mark, state })) {
-            // The state in hand holds what the disk refused; the disk holds
-            // what was committed.
-            state = onBigStack(chat.load, .{}).state;
-            return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
-        }
-        bus.publish(events_key, "changed");
-        break;
+    const answer = host.request(alloc, &time, &token, @tagName(req.head.method), target, path) catch |e| switch (e) {
+        error.NotAscii => return req.respond("{\"error\":\"the request is not ASCII\"}", .{ .status = .bad_request, .extra_headers = &.{http.json_ct} }),
+        else => return e,
     };
+    if (!answer.saved) return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
+    if (ChatHost.changes(path)) bus.publish(events_key, "changed");
     const content_type = try std.fmt.allocPrint(alloc, "{s}; charset=utf-8", .{answer.content_type});
     return req.respond(answer.body, .{ .extra_headers = &.{.{ .name = "content-type", .value = content_type }} });
-}
-
-fn routeOne(time: *const [5]u8, token: *const [16]u8, method: []const u8, target: []const u8) error{NotAscii}!chat.Answer {
-    const a = try chat.route(state, time, token, method, target, "");
-    state = a.state;
-    return a;
 }
 
 /// The wall clock's time of day, UTC, as server.ps1 stamped a message

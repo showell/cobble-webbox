@@ -9,6 +9,12 @@ const chapter_stack = 512 * 1024 * 1024;
 
 /// `f(args)` on a thread with the chapter's stack; its answer.
 pub fn onBigStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    return onStack(chapter_stack, f, args);
+}
+
+/// `f(args)` on a thread with `size` bytes of stack: a test asks what a
+/// host with less (zig-metal-unikernel's one 16 MB stack) can hold.
+pub fn onStack(size: usize, comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
     const Call = struct {
         fn run(out: *R, a: @TypeOf(args)) void {
@@ -16,7 +22,7 @@ pub fn onBigStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         }
     };
     var out: R = undefined;
-    const t = std.Thread.spawn(.{ .stack_size = chapter_stack }, Call.run, .{ &out, args }) catch @panic("cobble-webbox: no thread for the chapter's stack");
+    const t = std.Thread.spawn(.{ .stack_size = size }, Call.run, .{ &out, args }) catch @panic("cobble-webbox: no thread for the chapter's stack");
     t.join();
     return out;
 }

@@ -19,6 +19,40 @@ pub const api = struct {
         cx_file_host = host;
     }
 
+    /// Bytes of the Codex heap in use: everything allocated since the
+    /// heap's base, garbage included (it is a bump frontier).
+    pub fn heapUsed() i64 {
+        return cx_hp - cx_heap_floor;
+    }
+    const cx_heap_floor: i64 = 6291456;
+
+    /// The frontier now, to go back to: everything allocated after it is
+    /// given back by `heapBack`, so nothing kept may live there.
+    pub fn heapMark() i64 {
+        return cx_hp;
+    }
+
+    pub fn heapBack(mark_at: i64) void {
+        if (mark_at < cx_heap_floor or mark_at > cx_hp) @panic("codex chat: a heap mark that is not behind the frontier");
+        cx_hp = mark_at;
+    }
+
+    /// Everything given back: nothing from before may be used after it.
+    pub fn heapReset() void {
+        cx_hp = cx_heap_floor;
+    }
+
+    /// The Codex heap's region, in bytes, before its first allocation (it is
+    /// taken whole, once). A host with no virtual memory gives what it has.
+    pub fn heapRegion(bytes: usize) void {
+        if (cx_heap_mem.len != 0) @panic("codex chat: the heap's region is chosen before its first allocation");
+        cx_heap_reserve = bytes;
+    }
+
+    pub fn heapRegionSize() usize {
+        return cx_heap_reserve;
+    }
+
     pub fn newState() State {
         return chat_state_new();
     }
