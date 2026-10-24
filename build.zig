@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(chat_exe);
     const serve_chat = b.addRunArtifact(chat_exe);
     serve_chat.step.dependOn(b.getInstallStep());
-    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106 (CHAT_PORT), its state on data/chat.img (CHAT_DISK)").dependOn(&serve_chat.step);
+    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106 (CHAT_PORT), its state on data/codex-chat.img (CHAT_DISK)").dependOn(&serve_chat.step);
 
     // The sites' own tests, and the libraries answering through the emitted Zig.
     const tests = b.step("test", "The sites' tests, and GameServer.codex's and IdeaWeb.codex's answers through the emitted Zig");

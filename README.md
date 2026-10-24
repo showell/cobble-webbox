@@ -22,7 +22,7 @@ system.
 From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 (`COBBLESTONE_ROOT` names another) and `../zig-webbox`, with Zig 0.17:
 
-    zig build serve-chat    # Codex Chat, http://localhost:9106 (CHAT_PORT), on data/chat.img (CHAT_DISK)
+    zig build serve-chat    # Codex Chat, http://localhost:9106 (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
     zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
     zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
@@ -36,12 +36,20 @@ read from the checkout on every request.
   the page (`web/chat.html`: `ChatPage.codex` as the HTML plug builds it, by
   `codex/plugs/html/run.ps1` under QEMU, since the checked-in build threw on load) at
   `/`, and every `/api/chat/*` request to ChatServer's `chat-route`, with the time
-  of day and two random tokens. Its state is on a FAT16 image (`data/chat.img`, a
-  blank one made the first time by `src/fat16_blank.zig`): ChatStore reads it at
-  the start and writes `CHAT.JSN` after every request that changes anything,
-  through Cobblestone's own Fat16 foreword, whose sectors the host reads and writes
-  in the image. ChatServer and ChatStore are new Codex, on our fork's `webbox`
-  branch: Cobblestone's ChatServer was a stub, and server.ps1 the real server.
+  of day and two random tokens. `/api/chat/events` is an event stream (webbox's
+  `sse.forward`): each change publishes `changed`, and every open page asks again
+  with its own token. Its state is on a FAT16 image (`data/codex-chat.img`, a
+  blank one made the first time by `src/fat16_blank.zig`), under `codex-chat/`:
+  a file per account (`users/<n>.json`), per conversation
+  (`convs/<id>/conv.json`), and each conversation's messages, a line each
+  (`convs/<id>/messages.jsonl`). ChatStore reads them at the start; after every
+  request that changes anything it writes only what that request added, a
+  message by appending it, through Cobblestone's own Fat16 foreword, whose sectors
+  the host reads and writes in the image. A disk it cannot trust with the next
+  write (a missing account file, one that does not parse) is not served. Look
+  inside with mtools: `mtype -i data/codex-chat.img ::/codex-chat/convs/c1/messages.jsonl`.
+  ChatServer and ChatStore are new Codex, on our fork's `webbox` branch:
+  Cobblestone's ChatServer was a stub, and server.ps1 the real server.
 
 - **`src/ideas_app.zig`** is Idea Forge's site: `apps/ideas/IdeaServer.codex`'s
   network shell and `run.ps1`'s bridge, replaced. Every request goes to
@@ -91,10 +99,14 @@ is merged.
   `block-write-sector`, `process-get-scope`) as calls into the program's host,
   so the Fat16 foreword runs on a host's disk.
 - Codex Chat's server and its store on disk: `apps/chat/ChatServer.codex` (the
-  routes server.ps1 served) and `ChatStore.codex` (the state as `CHAT.JSN` on the
-  FAT16 boot volume), with `codex/test/apps/chat-server` and `chat-store`. Both
-  answer the same on bare metal under QEMU, where chat-store, booted twice on one
-  disk, finds the first boot's state.
+  routes server.ps1 served) and `ChatStore.codex` (the files above, on the FAT16
+  boot volume), with `codex/test/apps/chat-server` and `chat-store`. Both answer
+  the same on bare metal under QEMU, where chat-store, booted twice on one disk,
+  finds the first boot's state and appends to it. `ChatServe.codex` serves it on
+  bare metal (WebServer's concurrent loop, with the same event stream), and
+  ChatPage listens to the stream (`event-source-then`, a new HTML plug primitive).
+- Fat16: `fat16-append-file`, which writes only the new bytes
+  (`codex/test/fat16-append`).
 - GameServer: a new Yahtzee game's dice sent as they are ([#160](https://github.com/damiant3/Cobblestone/pull/160)),
   and Spider's suggested move decoded with `sp-decode-move` ([#161](https://github.com/damiant3/Cobblestone/pull/161)).
   Each trapped on an out-of-bounds `list-at`, on bare metal as in Zig: behind

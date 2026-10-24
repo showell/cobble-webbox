@@ -11,11 +11,17 @@
 //!
 //! **THE STATE IS ON A DISK CODEX DRIVES.** `disk_path` is a FAT16 volume
 //! (a blank one is made the first time, src/fat16_blank.zig); ChatStore
-//! reads it at the start and writes it after every request that changes
-//! anything (register, send, start, group: server.ps1's Save-State calls),
-//! through the Fat16 foreword, whose sectors this host reads and writes in
-//! the image (`readSector`, `writeSector`). The file it keeps there,
-//! CHAT.JSN, is the same one ChatStore keeps on bare metal.
+//! reads it at the start and, after every request that changes anything
+//! (register, send, start, group: server.ps1's Save-State calls), writes
+//! what that request added, through the Fat16 foreword, whose sectors this
+//! host reads and writes in the image (`readSector`, `writeSector`). The
+//! files it keeps there, under `codex-chat/`, are the ones ChatStore keeps
+//! on bare metal: a file per account, per conversation, and each
+//! conversation's messages, appended.
+//!
+//! A disk ChatStore will not trust with the next write (a missing account
+//! file, a file that does not parse) is not served: `setup` fails, saying
+//! why.
 
 const std = @import("std");
 const Io = @import("host_io").Io;
@@ -26,7 +32,7 @@ const fat16_blank = @import("fat16_blank.zig");
 const onBigStack = @import("stack.zig").onBigStack;
 
 /// The disk image; main.zig may set it from CHAT_DISK.
-pub var disk_path: []const u8 = "data/chat.img";
+pub var disk_path: []const u8 = "data/codex-chat.img";
 
 var disk: std.Io.File = undefined;
 var disk_io: Io = undefined;
@@ -50,7 +56,12 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         else => return e,
     };
     chat.useDisk(.{ .read = readSector, .write = writeSector });
-    state = onBigStack(chat.load, .{});
+    const loaded = onBigStack(chat.load, .{});
+    if (loaded.problem.len > 0) {
+        std.log.err("codex chat: not serving {s}: {s}", .{ disk_path, loaded.problem });
+        return error.ChatDiskUntrusted;
+    }
+    state = loaded.state;
     return .{ .disk = disk_path, .made = made };
 }
 
@@ -93,10 +104,16 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     var token: [16]u8 = undefined;
     timeOfDay(io, &time);
     freshToken(io, &token);
+    const mark = onBigStack(chat.mark, .{state});
     const answer = onBigStack(routeOne, .{ &time, &token, @tagName(req.head.method), target }) catch
         return req.respond("{\"error\":\"the request is not ASCII\"}", .{ .status = .bad_request, .extra_headers = &.{http.json_ct} });
     for (changing) |c| if (std.mem.eql(u8, path, c)) {
-        if (!onBigStack(chat.save, .{state})) return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
+        if (!onBigStack(chat.save, .{ mark, state })) {
+            // The state in hand holds what the disk refused; the disk holds
+            // what was committed.
+            state = onBigStack(chat.load, .{}).state;
+            return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
+        }
         try disk.sync(disk_io);
         bus.publish(events_key, "changed");
         break;

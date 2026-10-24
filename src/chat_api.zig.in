@@ -5,11 +5,13 @@
 // ========================================================================
 
 /// What a host calls. The names are ChatServer.codex's and ChatStore.codex's:
-/// the state, a fresh one, the state as the disk holds it and the disk
-/// written, and `chat-route`, which takes the time of day and a fresh
-/// token from its host as ChatServer's prose says.
+/// the state, a fresh one, the state as the disk holds it, a mark before a
+/// route and what the route changed written against it, and `chat-route`,
+/// which takes the time of day and a fresh token from its host as
+/// ChatServer's prose says.
 pub const api = struct {
     pub const State = ChatState;
+    pub const Mark = ChatStoreMark;
     pub const BlockHost = CxBlockHost;
 
     /// The disk ChatStore's FAT16 reads and writes: the host's sectors.
@@ -21,14 +23,27 @@ pub const api = struct {
         return chat_state_new();
     }
 
-    /// The state on the disk's FAT16 volume (`CHAT.JSN`), or a fresh one.
-    pub fn load() State {
-        return chat_store_load();
+    /// The state on the disk's FAT16 volume (under `codex-chat/`), and why
+    /// the disk cannot be trusted with the next write: empty when it can.
+    pub const Loaded = struct { state: State, problem: []const u8 };
+
+    pub fn load() Loaded {
+        const l = chat_store_load();
+        return .{ .state = l.sl_state, .problem = cx_cce_to_utf8(l.sl_problem) };
     }
 
-    /// The state written to the disk; whether the write went through.
-    pub fn save(state: State) bool {
-        return chat_store_save(state);
+    /// Taken before a route: what `save` writes is what the route added past
+    /// it. (The state before a route is no record of it: list-push writes in
+    /// place while a list has room.)
+    pub fn mark(state: State) Mark {
+        return chat_store_mark(state);
+    }
+
+    /// What changed since `m`, written; whether every write went through.
+    /// After a False the state in hand holds what the disk does not: `load`
+    /// again.
+    pub fn save(m: Mark, state: State) bool {
+        return chat_store_save(m, state);
     }
 
     pub const Answer = struct { state: State, status: []const u8, content_type: []const u8, body: []const u8 };
