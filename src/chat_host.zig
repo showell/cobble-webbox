@@ -17,9 +17,17 @@
 //! The calls run on the caller's stack: 16 MB on both webbox hosts (Linux's
 //! request threads, the bare-metal host's one stack), which a 3,000-message
 //! conversation fits (chat_test).
+//!
+//! **THE ONE CHAT A SITE SERVES** (`setup`, `refresh`, `answer`, below):
+//! its files and its heap's region, set once; files it cannot trust, which
+//! make every answer a 503 saying why (a site the chat is part of serves
+//! the rest); and what the host knows that ChatServer asks of it, the time
+//! of day and a fresh token. chat_app.zig is the HTTP around `answer`.
 
 const std = @import("std");
+const Io = @import("host_io").Io;
 const chat = @import("gen/chat.zig").api;
+const chat_files = @import("chat_files.zig");
 
 /// Garbage the changes may leave before the state is read again: about
 /// 4,000 sends at the 8 KB one costs.
@@ -63,13 +71,13 @@ const Host = @This();
 
 pub const StartError = error{FilesUntrusted};
 
-/// The state as the files hold it; `problem` says why not, when they cannot
-/// be trusted with the next write.
-pub fn start(problem: *[]const u8) StartError!Host {
+/// The state as the files hold it; `why` says why not, when they cannot be
+/// trusted with the next write.
+pub fn start(why: *[]const u8) StartError!Host {
     chat.heapReset();
     const l = chat.load();
     if (l.problem.len > 0) {
-        problem.* = l.problem;
+        why.* = l.problem;
         return error.FilesUntrusted;
     }
     return .{ .state = l.state, .loaded_at = chat.heapUsed() };
@@ -107,4 +115,84 @@ fn reload(self: *Host) void {
     self.state = l.state;
     self.loaded_at = chat.heapUsed();
     self.reloads += 1;
+}
+
+// ── The one chat a site serves ───────────────────────────────────────────
+
+var served: Host = undefined;
+/// Why the chat is not served, or "" while it is.
+var problem: []const u8 = "not started";
+/// Whether `setup` has run: the files' host and the heap's region are its.
+var set_up = false;
+
+pub const StartReport = struct { files: []const u8, problem: []const u8 };
+
+/// The chat's files under `data_dir`, its heap's region from `base` (zeroed,
+/// as bare metal's boot zero-fills its heap), and its state read from them.
+pub fn setup(io: Io, base: std.mem.Allocator, data_dir: []const u8) !StartReport {
+    chat_files.use(io, base, data_dir);
+    chat.useFiles(chat_files.host(chat.FileHost));
+    const region = try base.alignedAlloc(u8, .fromByteUnits(4096), heap_region);
+    @memset(region, 0);
+    chat.heapGive(region);
+    set_up = true;
+    refresh();
+    return .{ .files = data_dir, .problem = problem };
+}
+
+/// The state read again from the files: at the start, and after something
+/// other than this chat changed them (a site's script on its store). A site
+/// that never set the chat up has none to read.
+pub fn refresh() void {
+    if (!set_up) return;
+    var why: []const u8 = "";
+    if (start(&why)) |h| {
+        served = h;
+        problem = "";
+    } else |_| problem = why;
+}
+
+/// What a site answers an API request with; `changed` says the pages should
+/// be told.
+pub const Reply = struct {
+    status: std.http.Status,
+    content_type: []const u8,
+    body: []const u8,
+    changed: bool,
+};
+
+/// One API request (`target` and its `path` without the site's prefix).
+pub fn answer(io: Io, alloc: std.mem.Allocator, method: []const u8, target: []const u8, path: []const u8) !Reply {
+    if (problem.len > 0)
+        return .{ .status = .service_unavailable, .content_type = "text/plain; charset=utf-8", .body = try std.fmt.allocPrint(alloc, "codex chat is not serving its files: {s}", .{problem}), .changed = false };
+    var time: [5]u8 = undefined;
+    var token: [16]u8 = undefined;
+    timeOfDay(io, &time);
+    freshToken(io, &token);
+    const json = "application/json; charset=utf-8";
+    const a = served.request(alloc, &time, &token, method, target, path) catch |e| switch (e) {
+        error.NotAscii => return .{ .status = .bad_request, .content_type = json, .body = "{\"error\":\"the request is not ASCII\"}", .changed = false },
+        else => return e,
+    };
+    if (!a.saved) return .{ .status = .internal_server_error, .content_type = json, .body = "{\"error\":\"the disk refused the write\"}", .changed = false };
+    return .{ .status = .ok, .content_type = try std.fmt.allocPrint(alloc, "{s}; charset=utf-8", .{a.content_type}), .body = a.body, .changed = changes(path) };
+}
+
+/// The wall clock's time of day, UTC, as server.ps1 stamped a message
+/// (`HH:mm`).
+fn timeOfDay(io: Io, out: *[5]u8) void {
+    const s: u64 = @intCast(@divFloor(Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_s));
+    const day = s % std.time.s_per_day;
+    _ = std.fmt.bufPrint(out, "{d:0>2}:{d:0>2}", .{ day / 3600, day % 3600 / 60 }) catch unreachable;
+}
+
+/// 16 random hex digits: a session's name, which only its holder knows.
+fn freshToken(io: Io, out: *[16]u8) void {
+    var b: [8]u8 = undefined;
+    io.random(&b);
+    const hex = "0123456789abcdef";
+    for (b, 0..) |x, i| {
+        out[2 * i] = hex[x >> 4];
+        out[2 * i + 1] = hex[x & 15];
+    }
 }
