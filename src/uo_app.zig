@@ -48,9 +48,6 @@ var next_tick_ns: i96 = 0;
 var now_json: std.ArrayList(u8) = .empty;
 var map_json: []const u8 = "";
 var gpa: std.mem.Allocator = undefined;
-/// **THE HUB THE STREAMS ARE ON, FROM THE FIRST REQUEST**: `between` is
-/// handed no bus, and nobody can be listening before a request has come.
-var hub: ?*webbox.bus.Hub = null;
 var problem: []const u8 = "";
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
@@ -82,7 +79,7 @@ fn advance(seconds: i64) !void {
     try now_json.appendSlice(gpa, watch.json(kept, seconds));
 }
 
-pub fn between(io: Io, now: webbox.site.Now) webbox.site.Wake {
+pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.Wake {
     _ = io;
     if (problem.len > 0) return .idle;
     const t0 = started_ns orelse blk: {
@@ -94,7 +91,7 @@ pub fn between(io: Io, now: webbox.site.Now) webbox.site.Wake {
     const target: i64 = game_start + @as(i64, @intCast(@divFloor((now.awake_ns - t0) * game_speed, std.time.ns_per_s)));
     if (target > game_seconds) {
         advance(target) catch |e| std.debug.panic("uo town: {s} at game second {d}", .{ @errorName(e), target });
-        if (hub) |h| h.publish(events_key, now_json.items);
+        bus.publish(events_key, now_json.items);
     }
     next_tick_ns = webbox.site.periodAfter(next_tick_ns, tick_ns, now.awake_ns);
     return .{ .at = next_tick_ns };
@@ -117,7 +114,6 @@ const json_ct: std.http.Header = .{ .name = "content-type", .value = "applicatio
 
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, bus: *webbox.bus.Bus) !void {
     _ = io;
-    hub = bus.hub;
     const whole = try http.target(req, alloc);
     const path = http.pathUnder(http.pathOf(whole), prefix) orelse return http.notFound(req);
     if (std.mem.eql(u8, path, "/town")) return http.redirect(req, prefix ++ "/town/");
