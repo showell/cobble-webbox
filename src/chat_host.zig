@@ -25,12 +25,12 @@ const chat = @import("gen/chat.zig").api;
 /// 4,000 sends at the 8 KB one costs.
 pub const default_garbage_budget: i64 = 32 * 1024 * 1024;
 
-/// The Codex heap's region on every host: the bare-metal one has no virtual
-/// memory to reserve 4 GiB from, and the Linux one is held to the same, so a
-/// chat that outgrows it fails in a checkout first. What it holds is the
-/// state as last read (about 20 KB a stored message, with what its reading
-/// left), the garbage budget, and the largest answer being built: a
-/// 3,000-message chat peaks near 105 MB.
+/// The Codex heap's region a site gives (`chat.heapGive`) on every host: the
+/// bare-metal one has no virtual memory to reserve 4 GiB from, and the
+/// Linux one is held to the same, so a chat that outgrows it fails in a
+/// checkout first. What it holds is the state as last read (about 20 KB a
+/// stored message, with what its reading left), the garbage budget, and the
+/// largest answer being built: a 3,000-message chat peaks near 105 MB.
 pub const heap_region: usize = 256 * 1024 * 1024;
 
 /// The routes after which server.ps1 saved its state: ChatServer's only
@@ -66,7 +66,6 @@ pub const StartError = error{FilesUntrusted};
 /// The state as the files hold it; `problem` says why not, when they cannot
 /// be trusted with the next write.
 pub fn start(problem: *[]const u8) StartError!Host {
-    if (chat.heapRegionSize() != heap_region) chat.heapRegion(heap_region);
     chat.heapReset();
     const l = chat.load();
     if (l.problem.len > 0) {

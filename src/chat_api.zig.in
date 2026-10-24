@@ -42,15 +42,16 @@ pub const api = struct {
         cx_hp = cx_heap_floor;
     }
 
-    /// The Codex heap's region, in bytes, before its first allocation (it is
-    /// taken whole, once). A host with no virtual memory gives what it has.
-    pub fn heapRegion(bytes: usize) void {
-        if (cx_heap_mem.len != 0) @panic("codex chat: the heap's region is chosen before its first allocation");
-        cx_heap_reserve = bytes;
-    }
-
-    pub fn heapRegionSize() usize {
-        return cx_heap_reserve;
+    /// The Codex heap's region, given by the host before the first
+    /// allocation and kept for the process: zeroed, as bare metal's boot
+    /// zero-fills its heap. Giving the same region again changes nothing.
+    pub fn heapGive(region: []align(4096) u8) void {
+        if (cx_heap_mem.len != 0) {
+            if (cx_heap_mem.ptr == region.ptr and cx_heap_mem.len == region.len) return;
+            @panic("codex chat: the heap already has its region");
+        }
+        cx_heap_mem = region;
+        cx_heap_reserve = region.len;
     }
 
     pub fn newState() State {

@@ -51,10 +51,12 @@ var host: ChatHost = undefined;
 pub const StartReport = struct { files: []const u8 };
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
-    _ = base;
     const dir = if (roots) |r| r.data_dir else data_dir;
-    chat_files.use(io, dir);
+    chat_files.use(io, base, dir);
     chat.useFiles(chat_files.host(chat.FileHost));
+    const region = try base.alignedAlloc(u8, .fromByteUnits(4096), ChatHost.heap_region);
+    @memset(region, 0);
+    chat.heapGive(region);
     var problem: []const u8 = "";
     host = ChatHost.start(&problem) catch |e| {
         std.log.err("codex chat: not serving the files under {s}: {s}", .{ dir, problem });

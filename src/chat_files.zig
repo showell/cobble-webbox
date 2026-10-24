@@ -24,18 +24,20 @@ const store = @import("webbox").store;
 
 var root: []const u8 = "data";
 var io: Io = undefined;
-var answers: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+var answers: std.heap.ArenaAllocator = undefined;
 
 /// The host as the emitted code takes it (gen/*.zig's `CxFileHost`).
 pub fn host(comptime FileHost: type) FileHost {
     return .{ .read = read, .write = write, .append = append, .list = list, .make_dir = makeDir };
 }
 
-/// Where the files are and the Io they are reached through, set as the host
-/// starts: `data_dir` is the host's data root.
-pub fn use(host_io: Io, data_dir: []const u8) void {
+/// Where the files are, the Io they are reached through, and the allocator
+/// the answers come from, set as the host starts: `data_dir` is the host's
+/// data root.
+pub fn use(host_io: Io, base: std.mem.Allocator, data_dir: []const u8) void {
     io = host_io;
     root = data_dir;
+    answers = .init(base);
 }
 
 /// The arena for one call, emptied of the last call's answer.

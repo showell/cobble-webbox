@@ -56,8 +56,20 @@ const Root = struct {
         self.tmp = std.testing.tmpDir(.{});
         self.data = try std.fs.path.join(self.arena.allocator(), &.{ ".zig-cache", "tmp", &self.tmp.sub_path, "data" });
         self.threaded = .init(self.arena.allocator(), .{});
-        chat_files.use(self.threaded.io(), self.data);
+        chat_files.use(self.threaded.io(), self.arena.allocator(), self.data);
         chat.useFiles(chat_files.host(chat.FileHost));
+        chat.heapGive(region());
+    }
+
+    /// The heap's one region for the whole test process, as a site gives it.
+    var given: ?[]align(4096) u8 = null;
+    fn region() []align(4096) u8 {
+        if (given == null) {
+            const r = std.heap.page_allocator.alignedAlloc(u8, .fromByteUnits(4096), ChatHost.heap_region) catch @panic("no region for the Codex heap");
+            @memset(r, 0);
+            given = r;
+        }
+        return given.?;
     }
     fn deinit(self: *Root) void {
         chat.useFiles(null);

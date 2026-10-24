@@ -4388,11 +4388,7 @@ var cx_hp: i64 = 6291456;
 // ours read 170 in every byte. rawAlloc hands back the pages the OS
 // gives, which are zero and faulted lazily.
 fn cx_heap_base() [*]u8 {
-    if (cx_heap_mem.len == 0) {
-        const cx_pa = std.heap.page_allocator;
-        const cx_p = cx_pa.rawAlloc(cx_heap_reserve, .fromByteUnits(4096), @returnAddress()) orelse @panic("cx heap: cannot reserve the region");
-        cx_heap_mem = cx_p[0..cx_heap_reserve];
-    }
+    if (cx_heap_mem.len == 0) @panic("cx heap: the host gives the region (api.heapGive) before the first allocation");
     return cx_heap_mem.ptr;
 }
 fn cx_buf_want(n: i64) void {
@@ -4525,7 +4521,6 @@ var cx_deck_top: i64 = 0;
 var cx_deck_best: i64 = 0;
 var cx_deck_stride: i64 = 0;
 var cx_deck_armed: bool = false;
-var cx_environ: std.process.Environ = .empty;
 // Linux telemetry requires CODEX_DECK_REPORT=1 and an inherited open fd 3.
 // The first deck arming samples the setting once; -2 is unsampled, -1 disabled.
 var cx_deck_fd: i32 = -2;
@@ -4534,17 +4529,7 @@ var cx_deck_fd: i32 = -2;
 // readers compare both. Raw write syscall rather than std.Io.File, which in
 // 0.16 wants an Io instance. Only on a new peak, so the lines are few and the
 // last one is the answer.
-fn cx_deck_report() void {
-    if (@import("builtin").os.tag != .linux) return;
-    if (cx_deck_fd < 0) return;
-    if (cx_deck_base == 0 or cx_deck_top == 0) return;
-    const cx_used = cx_deck_hw - cx_deck_base;
-    if (cx_used - cx_deck_stride < 1048576) return;
-    cx_deck_stride = cx_used;
-    var cx_b: [224]u8 = undefined;
-    const cx_s = std.fmt.bufPrint(&cx_b, "CX-DECK used={d} reserved={d} headroom={d} base={d} peak={d} best={d}\n", .{ cx_used, cx_deck_top - cx_deck_base, cx_deck_top - cx_deck_hw, cx_deck_base, cx_deck_hw, cx_deck_best }) catch return;
-    _ = std.os.linux.write(cx_deck_fd, cx_s.ptr, cx_s.len);
-}
+fn cx_deck_report() void {}
 // The I/O boundary. Codex text is CCE everywhere inside -- on bare metal
 // and here alike -- so these convert at the edge and nowhere else: bytes
 // arriving become CCE, bytes leaving are already what they are. std.fs in
@@ -4849,14 +4834,13 @@ fn cx_show_int(n: i64) []const u8 {
     return buf;
 }
 fn cx_print_line(s: []const u8) void {
-    if (cx_host_print) |p| return p(cx_cce_to_utf8(s));
-    std.debug.print("{s}\n", .{cx_cce_to_utf8(s)});
+    if (cx_host_print) |p| p(cx_cce_to_utf8(s));
 }
 /// Library mode: a host's own print for the chapter's Console lines; null,
 /// stderr as a program's.
 pub var cx_host_print: ?*const fn ([]const u8) void = null;
 fn cx_print(s: []const u8) void {
-    std.debug.print("{s}", .{cx_cce_to_utf8(s)});
+    if (cx_host_print) |p| p(cx_cce_to_utf8(s));
 }
 
 
@@ -4928,15 +4912,16 @@ pub const api = struct {
         cx_hp = cx_heap_floor;
     }
 
-    /// The Codex heap's region, in bytes, before its first allocation (it is
-    /// taken whole, once). A host with no virtual memory gives what it has.
-    pub fn heapRegion(bytes: usize) void {
-        if (cx_heap_mem.len != 0) @panic("codex chat: the heap's region is chosen before its first allocation");
-        cx_heap_reserve = bytes;
-    }
-
-    pub fn heapRegionSize() usize {
-        return cx_heap_reserve;
+    /// The Codex heap's region, given by the host before the first
+    /// allocation and kept for the process: zeroed, as bare metal's boot
+    /// zero-fills its heap. Giving the same region again changes nothing.
+    pub fn heapGive(region: []align(4096) u8) void {
+        if (cx_heap_mem.len != 0) {
+            if (cx_heap_mem.ptr == region.ptr and cx_heap_mem.len == region.len) return;
+            @panic("codex chat: the heap already has its region");
+        }
+        cx_heap_mem = region;
+        cx_heap_reserve = region.len;
     }
 
     pub fn newState() State {
