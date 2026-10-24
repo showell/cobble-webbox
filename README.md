@@ -33,7 +33,8 @@ read from the checkout on every request.
 ## How it fits together
 
 - **`src/chat_app.zig`** is Codex Chat's site, in place of `apps/chat/web/server.ps1`:
-  the page Cobblestone builds (`web/chat.html`, copied from `apps/chat/web/`) at
+  the page (`web/chat.html`: `ChatPage.codex` as the HTML plug builds it, by
+  `codex/plugs/html/run.ps1` under QEMU, since the checked-in build threw on load) at
   `/`, and every `/api/chat/*` request to ChatServer's `chat-route`, with the time
   of day and two random tokens. Its state is on a FAT16 image (`data/chat.img`, a
   blank one made the first time by `src/fat16_blank.zig`): ChatStore reads it at
