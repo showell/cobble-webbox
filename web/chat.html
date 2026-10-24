@@ -220,6 +220,7 @@ if (typeof mount_widget_themed === 'function') { mount_widget_themed = ((f) => (
 if (typeof show_prompt === 'function') { show_prompt = ((f) => (...a) => __int(f(...a)))(show_prompt); }
 if (typeof set_timeout === 'function') { set_timeout = ((f) => (...a) => __int(f(...a)))(set_timeout); }
 if (typeof fetch_then === 'function') { fetch_then = ((f) => (...a) => __int(f(...a)))(fetch_then); }
+if (typeof show_alert === 'function') { show_alert = ((f) => (...a) => __int(f(...a)))(show_alert); }
 function Palette(fields) { return { _type: "Palette", ...fields }; }
 const CornerSharp = { _tag: "CornerSharp" };
 function CornerRound(_0) { return { _tag: "CornerRound", _0: _0 }; }
@@ -1096,9 +1097,15 @@ function new_conv_cb(name) {
 }
 function start_conv_cb(resp) {
   return (() => {
-    const r = load_conversations(0n);
-    return request_render(0n);
+    const err = json_obj_field(json_parse_obj(resp), "error");
+    return ((err === "no such user") ? show_alert("New Conversation", "Nobody has claimed that name yet.", alert_done) : ((text_length(err) > 0n) ? show_alert("New Conversation", err, alert_done) : (() => {
+      const r = load_conversations(0n);
+      return request_render(0n);
+    })()));
   })();
+}
+function alert_done(v) {
+  return 0n;
 }
 function select_conv__tb(__a0) {
   while (true) {
@@ -1499,7 +1506,11 @@ function register_cb__tb(__a0) {
       {
         const tok = json_obj_field(obj, "token");
         if ((tok === "")) {
-          return show_login(0n);
+          if ((json_obj_field(obj, "error") === "name taken")) {
+            return show_prompt("Welcome to CodexChat", "That name is taken. Choose another:", "your name", login_cb);
+          } else {
+            return show_login(0n);
+          }
         } else {
           {
             const s1 = local_storage_set("chat-token", tok);

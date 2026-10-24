@@ -6,8 +6,8 @@
 
 /// What a host calls. The names are ChatServer.codex's and ChatStore.codex's:
 /// the state, a fresh one, the state as the disk holds it and the disk
-/// written, and `chat-route`, which takes the time of day and two fresh
-/// tokens from its host as ChatServer's prose says.
+/// written, and `chat-route`, which takes the time of day and a fresh
+/// token from its host as ChatServer's prose says.
 pub const api = struct {
     pub const State = ChatState;
     pub const BlockHost = CxBlockHost;
@@ -34,12 +34,11 @@ pub const api = struct {
     pub const Answer = struct { state: State, status: []const u8, content_type: []const u8, body: []const u8 };
 
     /// One request (method, target, body: ASCII), at `time` (`HH:mm`), with
-    /// two fresh tokens for the accounts it may make.
-    pub fn route(state: State, time: []const u8, token: []const u8, token_2: []const u8, method: []const u8, target: []const u8, body: []const u8) error{NotAscii}!Answer {
+    /// a fresh token for the account it may make.
+    pub fn route(state: State, time: []const u8, token: []const u8, method: []const u8, target: []const u8, body: []const u8) error{NotAscii}!Answer {
         const host = cx_new(ChatHostS{
             .ch_time = try asciiToCce(time),
             .ch_token = try asciiToCce(token),
-            .ch_token_2 = try asciiToCce(token_2),
         });
         const req = cx_new(HttpRequestS{
             .method = try asciiToCce(method),

@@ -29,7 +29,7 @@ fn big(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_ty
 fn get(state: *chat.State, target: []const u8, token: []const u8) ![]const u8 {
     const Call = struct {
         fn run(s: *chat.State, t: []const u8, tok: []const u8) error{NotAscii}![]const u8 {
-            const a = try chat.route(s.*, "12:00", tok, "tok-second", "GET", t, "");
+            const a = try chat.route(s.*, "12:00", tok, "GET", t, "");
             s.* = a.state;
             return a.body;
         }
@@ -63,5 +63,8 @@ test "a chat saved to a FAT16 disk through Codex is there after a restart" {
     const msgs = try get(&again, "/api/chat/messages?t=tok-ben&conv=c1", "x");
     try std.testing.expectEqualStrings("{\"count\":\"1\",\"body-0\":\"kept on disk\",\"sender-0\":\"ann\",\"time-0\":\"12:00\",\"mine-0\":\"0\"}", msgs);
     // And it goes on from where it was: the next conversation is c2.
+    _ = try get(&again, "/api/chat/register?name=cat", "tok-cat");
     try std.testing.expectEqualStrings("{\"convId\":\"c2\"}", try get(&again, "/api/chat/start?t=tok-ben&with=cat", "x"));
+    // A name claimed before the restart is still claimed after it.
+    try std.testing.expectEqualStrings("{\"error\":\"name taken\"}", try get(&again, "/api/chat/register?name=ann", "tok-other"));
 }

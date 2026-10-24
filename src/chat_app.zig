@@ -6,8 +6,8 @@
 //!   GET /, /chat.html   the page: apps/chat/web/chat.html, Cobblestone's own
 //!                       build of ChatPage.codex (web/chat.html, compiled in)
 //!   /api/chat/*         ChatServer's `chat-route`, with what the host knows:
-//!                       the time of day (UTC, `HH:mm`) and two fresh tokens
-//!                       (16 hex digits each, as server.ps1 cut its GUIDs)
+//!                       the time of day (UTC, `HH:mm`) and a fresh token
+//!                       (16 hex digits, as server.ps1 cut its GUIDs)
 //!
 //! **THE STATE IS ON A DISK CODEX DRIVES.** `disk_path` is a FAT16 volume
 //! (a blank one is made the first time, src/fat16_blank.zig); ChatStore
@@ -84,10 +84,10 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (!std.mem.startsWith(u8, path, "/api/")) return http.notFound(req);
     _ = try http.readLimitedBody(req, alloc, 4096);
     var time: [5]u8 = undefined;
-    var tokens: [2][16]u8 = undefined;
+    var token: [16]u8 = undefined;
     timeOfDay(io, &time);
-    for (&tokens) |*t| freshToken(io, t);
-    const answer = onBigStack(routeOne, .{ &time, &tokens[0], &tokens[1], @tagName(req.head.method), target }) catch
+    freshToken(io, &token);
+    const answer = onBigStack(routeOne, .{ &time, &token, @tagName(req.head.method), target }) catch
         return req.respond("{\"error\":\"the request is not ASCII\"}", .{ .status = .bad_request, .extra_headers = &.{http.json_ct} });
     for (changing) |c| if (std.mem.eql(u8, path, c)) {
         if (!onBigStack(chat.save, .{state})) return req.respond("{\"error\":\"the disk refused the write\"}", .{ .status = .internal_server_error, .extra_headers = &.{http.json_ct} });
@@ -98,8 +98,8 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     return req.respond(answer.body, .{ .extra_headers = &.{.{ .name = "content-type", .value = content_type }} });
 }
 
-fn routeOne(time: *const [5]u8, token: *const [16]u8, token_2: *const [16]u8, method: []const u8, target: []const u8) error{NotAscii}!chat.Answer {
-    const a = try chat.route(state, time, token, token_2, method, target, "");
+fn routeOne(time: *const [5]u8, token: *const [16]u8, method: []const u8, target: []const u8) error{NotAscii}!chat.Answer {
+    const a = try chat.route(state, time, token, method, target, "");
     state = a.state;
     return a;
 }
