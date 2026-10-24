@@ -24,6 +24,7 @@ From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 
     zig build serve-chat    # Codex Chat, http://localhost:9106/codex-chat/ (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
     zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
+    zig build serve-uo      # uoaix's vendor proof, http://localhost:9107/uo/vendor-proof (UO_PORT)
     zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
 
@@ -109,6 +110,9 @@ is merged.
   finds the first boot's state and appends to it. `ChatServe.codex` serves it on
   bare metal (WebServer's concurrent loop, with the same event stream), and
   ChatPage listens to the stream (`event-source-then`, a new HTML plug primitive).
+- ZigEmitter: `poke-qword` (two `poke-32`s, taking no prelude part: the table is at
+  127 of 128), the PIT constants `pit-input-hz` and `pit-count`, and closures of
+  arity 6, which uoaix's proofs need.
 - Fat16: `fat16-append-file`, which writes only the new bytes
   (`codex/test/fat16-append`).
 - FileSystem: `append-file`, `list-dir` and `make-dir`, with default handlers on
@@ -130,6 +134,10 @@ is merged.
 - Idea Forge answers its whole protocol: a deal of three, the second deal of the
   day refused (429), a claim, a foreign claim refused (404), the ledger with its
   holder masked, window shopping.
+- uoaix's `proofs/GameVendorReplay.codex` (real buy and sell packets against a vendor)
+  prints its 31 expected lines byte for byte through the emitted Zig, on a request's
+  16 MB stack in a host-given region (about 75 MB of Codex heap), as a test and at
+  `/uo/vendor-proof`. The UO server itself does not run here yet.
 - A panic in one request ends the process.
 - The emitted runtime reserves its heap from the OS (4 GiB of address space, taken
   lazily) and never frees it: fine for a dev port, not yet for a 512 MB droplet.

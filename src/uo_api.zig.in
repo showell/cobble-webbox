@@ -1,0 +1,40 @@
+// ========================================================================
+// UOAIX'S VENDOR PROOF'S FACE (cobble-webbox, src/uo_api.zig.in, appended
+// by tools/regen.shale after src/library.zig.in).
+// ========================================================================
+
+/// What a host calls: apps/uoaix/proofs/GameVendorReplay.codex, the proof
+/// a program runs as its `opening`, its Console lines to the host's sink.
+pub const api = struct {
+    /// Bytes of the Codex heap in use since its base.
+    pub fn heapUsed() i64 {
+        return cx_hp - cx_heap_floor;
+    }
+    const cx_heap_floor: i64 = 6291456;
+
+    /// Everything given back: nothing from before may be used after it.
+    pub fn heapReset() void {
+        cx_hp = cx_heap_floor;
+    }
+
+    /// The Codex heap's region, given by the host before the first
+    /// allocation and kept for the process: zeroed, as bare metal's boot
+    /// zero-fills its heap. Giving the same region again changes nothing.
+    pub fn heapGive(region: []align(4096) u8) void {
+        if (cx_heap_mem.len != 0) {
+            if (cx_heap_mem.ptr == region.ptr and cx_heap_mem.len == region.len) return;
+            @panic("uo: the heap already has its region");
+        }
+        cx_heap_mem = region;
+        cx_heap_reserve = region.len;
+    }
+
+    /// The proof, once, from a fresh heap: each line it prints, UTF-8, to
+    /// `sink`, valid only during that call.
+    pub fn runProof(sink: *const fn ([]const u8) void) void {
+        cx_hp = cx_heap_floor;
+        cx_host_print = sink;
+        defer cx_host_print = null;
+        opening();
+    }
+};
