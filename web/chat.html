@@ -627,6 +627,9 @@ function sk_msg_count() {
 function sk_msgs_shown() {
   return "msgs-shown";
 }
+function sk_convs_seen() {
+  return "convs-seen";
+}
 function sk_compose() {
   return "compose-text";
 }
@@ -1205,15 +1208,22 @@ function load_conversations(x) {
 function convs_cb__tb(__a0) {
   while (true) {
     const resp = __a0;
-    {
-      const obj = json_parse_obj(resp);
+    if ((resp === state_get_text(sk_convs_seen()))) {
+      return 0n;
+    } else {
       {
-        const count_str = json_obj_field(obj, "count");
+        const k = state_set_text(sk_convs_seen(), resp);
         {
-          const count = text_to_int(count_str);
+          const obj = json_parse_obj(resp);
           {
-            const s = state_set(sk_conv_count(), count);
-            return load_conv_details(0n, count, resp);
+            const count_str = json_obj_field(obj, "count");
+            {
+              const count = text_to_int(count_str);
+              {
+                const s = state_set(sk_conv_count(), count);
+                return load_conv_details(0n, count, resp);
+              }
+            }
           }
         }
       }
@@ -1634,11 +1644,10 @@ function render_chat(x) {
 }
 function poll_messages(x) {
   return (() => {
+    const c = ((state_get_text("token") === "") ? 0n : load_conversations(0n));
     const active = state_get(sk_active_conv());
-    return ((active < 0n) ? set_timeout(poll_messages, 3000n) : (() => {
-      const r = load_messages(0n);
-      return set_timeout(poll_messages, 3000n);
-    })());
+    const m = ((active < 0n) ? 0n : load_messages(0n));
+    return set_timeout(poll_messages, 3000n);
   })();
 }
 function opening() {
