@@ -40,5 +40,9 @@ fn unread(_: *const std.process.Environ.Map) webbox.free_space.FreeSpace {
 }
 
 fn report(started: *const site.Started) void {
+    if (started.app.problem.len > 0) {
+        std.debug.print("codex-chat: not serving the files under {s}: {s}\n", .{ started.app.files, started.app.problem });
+        std.process.exit(1);
+    }
     std.debug.print("codex-chat: state in {s}/codex-chat/\n", .{started.app.files});
 }

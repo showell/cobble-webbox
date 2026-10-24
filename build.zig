@@ -56,6 +56,17 @@ pub fn build(b: *std.Build) void {
     serve_chat.step.dependOn(b.getInstallStep());
     b.step("serve-chat", "Serve Codex Chat on http://localhost:9106/codex-chat/ (CHAT_PORT), its state in data/codex-chat/ (CHAT_DATA)").dependOn(&serve_chat.step);
 
+    // **CODEX CHAT AS A MODULE**, for a site that serves it among its own
+    // routes (angry-gopher, under /codex-chat): src/chat_app.zig's setup,
+    // routes and bodyLimit, portable (no host call reaches it), on the
+    // importer's webbox and host_io. zig-metal-unikernel's kernel build makes
+    // the same module from this checkout's sources with the machine's.
+    const codex_chat = b.addModule("codex_chat", .{
+        .root_source_file = b.path("src/chat_app.zig"),
+        .imports = &.{ imports[0], imports[1] },
+    });
+    withChatPage(b, codex_chat);
+
     // The sites' own tests, and the libraries answering through the emitted Zig.
     const tests = b.step("test", "The sites' tests, and GameServer.codex's and IdeaWeb.codex's answers through the emitted Zig");
     for ([_][]const u8{ "src/app.zig", "src/games_test.zig", "src/ideas_app.zig", "src/ideas_test.zig", "src/chat_app.zig", "src/chat_test.zig" }) |root| {

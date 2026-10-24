@@ -30,8 +30,9 @@
 //! volume, through the compiler's FAT16 handlers.
 //!
 //! Files ChatStore will not trust with the next write (a missing account
-//! file, a file that does not parse) are not served: `setup` fails, saying
-//! why.
+//! file, a file that does not parse) are not served: the API answers 503
+//! with why, so a site this chat is part of (angry-gopher) keeps serving
+//! everything else; chat_main.zig, a server of its own, refuses to start.
 
 const std = @import("std");
 const Io = @import("host_io").Io;
@@ -48,7 +49,12 @@ pub var data_dir: []const u8 = "data";
 /// One handler runs at a time (webbox's hosts), so it is shared plainly.
 var host: ChatHost = undefined;
 
-pub const StartReport = struct { files: []const u8 };
+/// Why the chat is not served, or "" while it is: files it cannot trust with
+/// the next write. The chat answers 503 with it rather than stop the site
+/// it is part of; a server of its own (chat_main.zig) refuses to start.
+var problem: []const u8 = "not started";
+
+pub const StartReport = struct { files: []const u8, problem: []const u8 };
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     const dir = if (roots) |r| r.data_dir else data_dir;
@@ -57,12 +63,18 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     const region = try base.alignedAlloc(u8, .fromByteUnits(4096), ChatHost.heap_region);
     @memset(region, 0);
     chat.heapGive(region);
-    var problem: []const u8 = "";
-    host = ChatHost.start(&problem) catch |e| {
-        std.log.err("codex chat: not serving the files under {s}: {s}", .{ dir, problem });
-        return e;
-    };
-    return .{ .files = dir };
+    refresh();
+    return .{ .files = dir, .problem = problem };
+}
+
+/// The state read again from the files: at the start, and after something
+/// other than this chat changed them (a site's script on its store).
+pub fn refresh() void {
+    var why: []const u8 = "";
+    if (ChatHost.start(&why)) |h| {
+        host = h;
+        problem = "";
+    } else |_| problem = why;
 }
 
 /// No route reads a body: the page sends its parameters in the query, a
@@ -93,6 +105,10 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     }
     if (std.mem.eql(u8, path, "/api/chat/events")) return webbox.sse.forward(req, bus, events_key);
     if (!std.mem.startsWith(u8, path, "/api/")) return http.notFound(req);
+    if (problem.len > 0) {
+        const msg = try std.fmt.allocPrint(alloc, "codex chat is not serving its files: {s}", .{problem});
+        return req.respond(msg, .{ .status = .service_unavailable, .extra_headers = &.{http.plain_ct} });
+    }
     _ = try http.readLimitedBody(req, alloc, 4096);
     var time: [5]u8 = undefined;
     var token: [16]u8 = undefined;
