@@ -34,8 +34,16 @@ read from the checkout on every request.
   (`X-Forwarded-For`, else `?who=`, else `the-proxy`, as `resolve-who` has it:
   any proxy's word is believed, as there) and the day (whole days since the
   house opened, as `current-day` counts PIT ticks since boot). Its state is in
-  memory, as there. The page (`IdeaPage.codex`, built by the HTML plug) is not
-  served yet: `/` is the API's own usage document.
+  memory, as there. Its page is served at `/`, as run.ps1 served it.
+- **`web/idea-forge.html`** is that page: `apps/ideas/IdeaPage.codex` (a widget
+  tree) as Cobblestone's HTML plug built it, once, by Damian's own scripts under
+  QEMU (no codex-vm here; his vm-config.ps1 falls back to it), at c660bb418813:
+
+      pwsh codex/plugs/html/build.ps1
+      pwsh codex/plugs/html/run.ps1 -Src apps/ideas/IdeaPage.codex -Out <this repo>/web/idea-forge.html
+
+  About 20 s in all. It is checked in because it is built rarely and by a guest;
+  `build.zig` compiles it into the server.
 
 - **`src/app.zig`** is the site: Cobblestone's `apps/games/server.ps1`, route for
   route. `/api/*` hands GameServer the line server.ps1 built (`GET /api/tictactoe/step`)

@@ -3,9 +3,14 @@
 //! (src/gen/ideas.zig), with IdeaServer.codex's network shell, and the
 //! bridge apps/ideas/run.ps1 put in front of it, replaced by this file.
 //!
-//! Every request goes to IdeaWeb's `idea-route-at`, which answers it whole
-//! (README.md in apps/ideas: `/`, `/offer`, `/claim`, `/claims`, `/idea`,
-//! `/api/health`). What IdeaServer told it, this host tells it:
+//!   GET /, /index.html   the page: IdeaPage.codex as Cobblestone's HTML plug
+//!                        built it (web/idea-forge.html, compiled in), as
+//!                        run.ps1's bridge served it
+//!   everything else      IdeaWeb's `idea-route-at`, which answers it whole
+//!                        (README.md in apps/ideas: `/offer`, `/claim`,
+//!                        `/claims`, `/idea`, `/api/health`)
+//!
+//! What IdeaServer told IdeaWeb, this host tells it:
 //!
 //!   the caller   `X-Forwarded-For` when the request carries one, else the
 //!                `who` query parameter, else `the-proxy` (`resolve-who`)
@@ -47,6 +52,11 @@ pub fn bodyLimit(path: []const u8) u64 {
 
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: *webbox.bus.Bus) !void {
     const target = try http.target(req, alloc);
+    const path = http.pathOf(target);
+    if (std.mem.eql(u8, path, "/") or std.mem.eql(u8, path, "/index.html")) {
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
+        return req.respond(@embedFile("idea_forge_page"), .{ .extra_headers = &.{http.html_ct} });
+    }
     const who = try whoOf(req, alloc, target);
     const day = dayOf(io);
     const body = (try http.readLimitedBody(req, alloc, 4096)) orelse "";
