@@ -48,15 +48,15 @@ is merged.
 
 - ZigEmitter: three forms Zig 0.17 refuses, rewritten in forms 0.16 and 0.17 both
   take (b8b4f722).
+- GameServer: a new Yahtzee game's dice sent as they are ([#160](https://github.com/damiant3/Cobblestone/pull/160)),
+  and Spider's suggested move decoded with `sp-decode-move` ([#161](https://github.com/damiant3/Cobblestone/pull/161)).
+  Each trapped on an out-of-bounds `list-at`, on bare metal as in Zig: behind
+  server.ps1, a 504 and a VM restart.
 
 ## Status (2026-10-24)
 
-- 31 of GameServer's 33 game routes (all but `/api/run/`) answer `new` and two or
-  three steps through the emitted Zig.
-- Two crash the server on an out-of-bounds list read, both Cobblestone bugs that
-  bare metal's unchecked `list-at` hides: Yahtzee's `new` (a new game's dice are
-  `[]`, and its JSON reads five), and Spider's `step` (GameServer decodes the
-  suggested move as three digits; Spider's moves are encoded otherwise now).
+- All 33 of GameServer's game routes (all but `/api/run/`) answer `new` and their
+  first steps through the emitted Zig, with the two GameServer fixes above.
 - A panic in one game ends the process for all of them.
 - The emitted runtime reserves its heap from the OS (4 GiB of address space, taken
   lazily) and never frees it: fine for a dev port, not yet for a 512 MB droplet.
