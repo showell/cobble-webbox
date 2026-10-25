@@ -235,8 +235,23 @@ function paintShops() {
   gctx.textBaseline = "alphabetic";
 }
 
+// The residents' own places (TownLive's regions, not shops): where they
+// sleep and the tavern's seats, a floor with its name over it.
+function paintPlaces() {
+  const d = devicePixelRatio, T = tile * d;
+  gctx.textAlign = "center";
+  for (const p of map.places || []) {
+    const x = (p.x1 - map.x) * T, y = (p.y1 - map.y) * T, w = (p.x2 - p.x1 + 1) * T, h = (p.y2 - p.y1 + 1) * T;
+    gctx.fillStyle = "#7d6a42"; gctx.fillRect(x, y, w, h);
+    gctx.strokeStyle = "#c4a060"; gctx.lineWidth = d * 1.5; gctx.setLineDash([4 * d, 3 * d]); gctx.strokeRect(x, y, w, h); gctx.setLineDash([]);
+    gctx.font = `${11 * d}px Georgia`; gctx.fillStyle = "#ffe9a0";
+    gctx.fillText(p.title === "Tavern" ? "🍺 " + p.premises + " (tavern)" : "🛏️ " + p.premises + " (lodging)", x + w / 2, y + h + 13 * d);
+  }
+}
+
 function paintGround() {
   for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) groundTile(x, y);
+  paintPlaces();
   paintShops();
 }
 
@@ -312,7 +327,7 @@ function take(snapshot) {
   showWhere(mine);
   if (mine && map.shops.some(s => mine.x >= s.x1 && mine.x <= s.x2 && mine.y >= s.y1 && mine.y <= s.y2)) did(3);
   // A path worn over a shop's label: the labels go back on top.
-  if (wornSince) { paintShops(); wornSince = false; }
+  if (wornSince) { paintPlaces(); paintShops(); wornSince = false; }
   const t = hhmm(seconds);
   document.getElementById("time").textContent = `Day ${t.day}, ${t.text}`;
   showCard();
@@ -546,6 +561,7 @@ markSteps();
 function listen() {
   const live = document.getElementById("live");
   const es = new EventSource("events");
+  es.onopen = () => live.classList.remove("off");
   es.onmessage = e => { live.classList.remove("off"); take(JSON.parse(e.data)); };
   es.onerror = () => live.classList.add("off");
 }

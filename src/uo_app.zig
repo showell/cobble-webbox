@@ -73,6 +73,9 @@ var now_json: std.ArrayList(u8) = .empty;
 var map_json: []const u8 = "";
 var gpa: std.mem.Allocator = undefined;
 var problem: []const u8 = "";
+/// Whether `setup` has made the town: a site's `between` may be called
+/// before (angry-gopher's script tests call it with no setup).
+var set_up = false;
 
 /// The town's five seats (TownWatch's, the account's character slots), each
 /// held by the token its player was given; a seat quiet for `seat_idle_ns`
@@ -92,6 +95,7 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     @memset(region, 0);
     watch.heapGive(region);
     kept = watch.new();
+    set_up = true;
     problem = try base.dupe(u8, watch.problem(kept));
     if (problem.len > 0) return .{ .problem = problem };
     const mark = watch.heapMark();
@@ -126,7 +130,7 @@ fn advance(io: Io, seconds: i64) !void {
 }
 
 pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.Wake {
-    if (problem.len > 0) return .idle;
+    if (!set_up or problem.len > 0) return .idle;
     const t0 = base_ns orelse blk: {
         base_ns = now.awake_ns;
         next_tick_ns = now.awake_ns;
