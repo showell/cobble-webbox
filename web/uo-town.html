@@ -309,6 +309,7 @@ function take(snapshot) {
   showShops();
   // Step 3: this browser's body inside a shop's walls.
   const mine = me && players.find(p => p.seat === me.seat);
+  showWhere(mine);
   if (mine && map.shops.some(s => mine.x >= s.x1 && mine.x <= s.x2 && mine.y >= s.y1 && mine.y <= s.y2)) did(3);
   // A path worn over a shop's label: the labels go back on top.
   if (wornSince) { paintShops(); wornSince = false; }
@@ -450,6 +451,19 @@ function coins(c) {
   return [g && g + "g", s && s + "s", (k || !(g || s)) && k + "c"].filter(Boolean).join(" ");
 }
 
+// Where this browser's body is: walking, or which keeper is near enough to
+// hear it (a keeper trades across four tiles).
+let near = null, walking = false;
+function showWhere(mine) {
+  const where = document.getElementById("where");
+  if (!where || !mine) return;
+  walking = mine.walking;
+  near = keepers.find(k => k.x >= 0 && Math.abs(k.x - mine.x) <= 4 && Math.abs(k.y - mine.y) <= 4) || null;
+  where.textContent = walking ? "You are walking…" :
+    near ? `You are by the ${near.title} (${near.shut ? "shut" : "open"}): say “vendor buy”.` :
+    "No keeper is near you: walk to an open shop (step 3).";
+}
+
 function showYou() {
   const you = document.getElementById("you");
   if (!me) return;
@@ -457,7 +471,7 @@ function showYou() {
   const join = document.getElementById("join");
   if (join) join.outerHTML = `<div>You are <b>${me.name.replace(/[^A-Za-z]/g, "")}</b> (seat ${me.seat + 1} of 5).</div>`;
   did(2);
-  you.innerHTML = `<form id="sayform"><input id="words" maxlength="120" placeholder="say something" autocomplete="off"><button>Say</button></form>
+  you.innerHTML = `<div id="where" class="note"></div><form id="sayform"><input id="words" maxlength="120" placeholder="say something" autocomplete="off"><button>Say</button></form>
     <div class="phrases"><button data-w="vendor buy">vendor buy</button><button data-w="hail">hail</button><button data-w="any news?">any news?</button></div>
     <div id="offers"></div><div class="note" id="note"></div>`;
   you.querySelector("#sayform").addEventListener("submit", e => { e.preventDefault(); const w = document.getElementById("words"); speak(w.value); w.value = ""; });
@@ -471,7 +485,9 @@ async function speak(words) {
   if (r.status === 403) return forget();
   if (!r.ok) { document.getElementById("note").textContent = await r.text(); return; }
   const answer = await r.json();
-  document.getElementById("note").textContent = answer.heard && answer.heard.length ? "" : "Nobody near answers.";
+  document.getElementById("note").textContent = answer.heard && answer.heard.length ? "" :
+    walking ? "Nobody heard you: you are still walking. Wait until you arrive." :
+    near ? `The ${near.title} did not answer.` : "Nobody heard you: no keeper is near enough. Walk into an open shop first.";
   if ((answer.note || "").includes("buy menu")) showOffers();
 }
 
