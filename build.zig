@@ -56,8 +56,8 @@ pub fn build(b: *std.Build) void {
     serve_chat.step.dependOn(b.getInstallStep());
     b.step("serve-chat", "Serve Codex Chat on http://localhost:9106/ (CHAT_PORT), its state in data/codex-chat/ (CHAT_DATA)").dependOn(&serve_chat.step);
 
-    // uoaix's first proofs (apps/uoaix/proofs/GameVendorReplay.codex and
-    // TownLiveProof.codex): zig build serve-uo.
+    // The live UO town (apps/uoaix/TownWatch.codex, src/uo_app.zig): zig
+    // build serve-uo.
     const uo_exe = b.addExecutable(.{ .name = "uo", .root_module = b.createModule(.{
         .root_source_file = b.path("src/uo_main.zig"),
         .target = target,
@@ -118,7 +118,7 @@ fn withUoExpected(b: *std.Build, m: *std.Build.Module) void {
     m.addAnonymousImport("uo_town_expected", .{ .root_source_file = b.path("../cobblestone-pin/apps/uoaix/proofs/TownLiveProof.expected") });
 }
 
-/// The page uo_app.zig serves at `/uo/town/`, as `@embedFile("uo_town_page")`.
+/// The page uo_app.zig serves at `town/`, as `@embedFile("uo_town_page")`.
 fn withTownPage(b: *std.Build, m: *std.Build.Module) void {
     m.addAnonymousImport("uo_town_page", .{ .root_source_file = b.path("web/uo-town.html") });
 }

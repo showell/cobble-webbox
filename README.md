@@ -5,46 +5,125 @@ server-side Codex compiled to Zig and served by webbox's Linux host, with no QEM
 guest and no PowerShell bridge in front of it.
 
 - **Codex Chat** (`apps/chat`): `ChatServer.codex` and `ChatStore.codex`, a
-  chat whose state lives on a FAT16 disk Codex drives itself, on
-  http://localhost:9106.
+  chat whose state is files Codex keeps through its FileSystem effect.
+  Standalone on http://localhost:9106/; mounted in Gopher Chat at
+  `/codex-chat/`.
+- **The UO town** (`apps/uoaix/TownWatch.codex`): Damian's uoaix townsfolk,
+  shops and trade, kept and ticked live, joinable by up to five players; a
+  demo of the uoaix shard's code, not the UO server. Standalone on
+  http://localhost:9107/town/; mounted in Gopher Chat at `/uo/town/`.
 - **Idea Forge** (`apps/ideas`): `IdeaWeb.codex`, a reservation service for
-  generated business ideas, on http://localhost:9105.
+  generated business ideas, on http://localhost:9105. Standalone only.
 - **The games** (`apps/games`): `GameServer.codex`, the server side of the 34
   classic games, with Cobblestone's own pages, on http://localhost:9104.
+  Standalone only.
 
 The aim is Damian's server-side Codex running on rented "bare metal": this
 Linux host first, then [zig-metal-unikernel](https://github.com/showell/zig-metal-unikernel)
 on a DigitalOcean droplet, which runs the same webbox sources with no operating
 system.
 
-## Running it
+## From a clone to a running app
 
-From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
-(`COBBLESTONE_ROOT` names another) and `../zig-webbox`, with Zig 0.17:
+**Sibling checkouts** (paths are fixed in `build.zig.zon` and `build.zig`):
 
-    zig build serve-chat    # Codex Chat, http://localhost:9106/codex-chat/ (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
-    zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
-    zig build serve-uo      # uoaix's live town, http://localhost:9107/uo/town/ (UO_PORT)
-    zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
-    zig build test
+- `../zig-webbox` — the library (`build.zig.zon`'s `webbox` path dependency).
+- `../cobblestone-pin` — our Cobblestone fork on its `webbox` branch (here a
+  worktree of `~/showell_repos/NewRepository`, remote
+  `showell/NewRepository`; upstream `damiant3/Cobblestone`). `zig build test`
+  embeds the uoaix proofs' `.expected` files from it, and `serve` reads the
+  games' pages from it at run time (`COBBLESTONE_ROOT` names another for
+  `serve` only). `serve-chat`, `serve-uo` and `serve-ideas` do not read it:
+  `src/gen/` and `web/` are checked in.
 
-The pages are Cobblestone's own (`apps/games/index.html`, `classic/web/*.html`),
-read from the checkout on every request.
+**Zig 0.17** (`build.zig.zon`'s `minimum_zig_version`). Then, from this checkout:
+
+    zig build test          # the sites' tests and the libraries' answers (build.zig's `test` step)
+    zig build serve-chat    # Codex Chat, http://localhost:9106/
+    zig build serve-uo      # the UO town, http://localhost:9107/town/
+    zig build serve-ideas   # Idea Forge, http://localhost:9105/
+    zig build serve         # the games, http://localhost:9104/
+
+`zig build -l` lists the steps. Each server's Linux host reads
+`<APP>_PORT`, `<APP>_BIND`, `<APP>_CONFIG`, `<APP>_TRUSTED_PROXY` and
+`<APP>_KEEPALIVE_MS`, with `<APP>` one of `CHAT`, `UO`, `IDEAS`, `COBBLE`
+(`src/*main.zig`), and opens `auth/` beside `data/` (both gitignored).
+Codex Chat keeps its files in `data/codex-chat/` (`CHAT_DATA` names another);
+the others keep nothing on disk. The games' pages are Cobblestone's own
+(`apps/games/index.html`, `classic/web/*.html`), read on every request.
+
+Pitfall: Codex Chat refuses to start on files it cannot trust (a missing
+account file, one that does not parse) and says which; the UO town stops if
+its first tick fails. Both print why and exit 1 (`src/chat_main.zig`,
+`src/uo_main.zig`).
+
+## Regenerating `src/gen/`
+
+`src/gen/*.zig` is generated (each file's header says from which Codex root
+and at which Cobblestone commit); never edit it. To change a Codex app, change
+it in the fork, commit there, then:
+
+    cd ~/showell_repos/cobble-webbox && shale tools/regen.shale
+
+It needs [Shale](https://github.com/showell/shale) with these mounts (or the
+script's `NAME=VALUE` overrides, `tools/regen.shale`'s `arg(...)` lines):
+`cobble:` the fork checkout, `repos:` holding `codex-zig-transpiler`,
+`zig016:` a Zig 0.16 install, and PowerShell at `~/.local/pwsh/pwsh` (the
+fork's bundler, `build/bundle-app.ps1`, is PowerShell). The first run builds
+codexzig into `.zig-cache/` (about 2 min). If regen stops with "no library
+face", the transpiler's checked-in codexzig lacks the fork's library mode:
+run `shale tools/codexzig.shale` (rebuilds codexzig from the fork) and regen
+again. Then `zig build test`, and commit `src/gen/` with the change.
+
+`web/chat.html` and `web/idea-forge.html` are Cobblestone's HTML plug's
+output, built by hand under QEMU (see `web/idea-forge.html` below);
+`web/uo-town.html` is hand-written; `tools/compiler.shale` builds Damian's
+compiler from the fork for testing compiler or foreword changes on bare metal.
+
+## Mounted in another site, and deployed
+
+`build.zig` exports two modules for a site that serves them among its own
+routes with webbox's combo (`webbox.combo.Mount`, `../zig-webbox/src/combo.zig`):
+
+- `codex_chat` — `src/chat_app.zig`, with `web/chat.html` compiled in.
+- `uo_town` — `src/uo_app.zig`, with `web/uo-town.html` compiled in.
+
+**The mount contract.** Each answers every path from `/`; the combo strips
+its prefix, sends the bare prefix to `prefix/`, and gives the mount
+`<data>/<name>` and `<auth>/<name>` (the name is the prefix's segment). So the
+app's pages ask for everything relative to themselves, never `/...`; its
+event-stream bus key carries its own name (`codex-chat`, `uo-town`); its
+setup takes its folder from `roots` and falls back to a checkout default only
+when run alone; and it exports `hosting` (`data_name`, `describeStart`) for
+the combined site's start log. Idea Forge and the games use absolute paths
+(`/offer`, `/api/...`, `/games/...`) and are not mountable as they stand.
+
+**Where they run.** [angry-gopher](https://github.com/showell/angry-gopher)
+(Gopher Chat) is the primary: `zig-server/src/router.zig` mounts `codex_chat`
+at `/codex-chat` and `uo_town` at `/uo`, through `zig-server/build.zig.zon`'s
+path dependency on this checkout (`../../cobble-webbox`). A combination is
+built and tested in the primary's repo, not here. Codex Chat's files there are
+`data/codex-chat/`. lynrummy.com itself is served by zig-metal-unikernel,
+whose `build.zig` makes the same two modules from this checkout's sources
+(`-Dcobble-root=` names another; default `../cobble-webbox`) with its own
+`host_io`; a change here reaches the site only as a new kernel release, by
+that repo's `DEPLOY.md` (what serves is its newest `v*` tag, so whether
+lynrummy.com carries a given change here is that tag's question).
 
 ## How it fits together
 
 - **`src/chat_app.zig`** is Codex Chat's site, in place of `apps/chat/web/server.ps1`:
   the page (`web/chat.html`: `ChatPage.codex` as the HTML plug builds it, by
   `codex/plugs/html/run.ps1` under QEMU, since the checked-in build threw on load) at
-  `/codex-chat/`, and every `/codex-chat/api/chat/*` request to ChatServer's
-  `chat-route` (with the prefix taken off), with the time of day and two random
-  tokens. Every name it has on a host carries `codex-chat` (paths, bus key, its
-  files' folder, the page's localStorage key), so it can share a site with Gopher
-  Chat; the page asks for the API relative to itself. `api/chat/events` is an
+  `/`, and every `/api/chat/*` request to ChatServer's `chat-route`, with the
+  time of day and two random tokens. Its bus key and the page's localStorage
+  key carry `codex-chat`, so it can share a site with Gopher Chat; the page
+  asks for the API relative to itself. `api/chat/events` is an
   event stream (webbox's `sse.forward`): each change publishes `changed`, and
-  every open page asks again with its own token. Its state is in files under
-  `codex-chat/` in the host's data root (`data/` in a checkout, `CHAT_DATA` for
-  another): a file per account (`users/<n>.json`), per conversation
+  every open page asks again with its own token. Its state is in files in the
+  folder the host gives it (`data/codex-chat/` alone or mounted at
+  `/codex-chat`; `CHAT_DATA` for another), onto which `chat_files.zig` maps
+  ChatStore's own `codex-chat/`: a file per account (`users/<n>.json`), per conversation
   (`convs/<id>/conv.json`), and each conversation's messages, a line each
   (`convs/<id>/messages.jsonl`). ChatStore keeps them through Codex's FileSystem
   effect, whose ops the ZigEmitter turns into calls on the program's host, here
@@ -55,6 +134,14 @@ read from the checkout on every request.
   next write (a missing account file, one that does not parse) are not served.
   ChatServer and ChatStore are new Codex, on our fork's `webbox` branch:
   Cobblestone's ChatServer was a stub, and server.ps1 the real server.
+
+- **`src/uo_app.zig`** is the UO town's site: TownWatch's library
+  (`src/gen/uo_watch.zig`, through `src/uo_watch_api.zig`) built at setup on a
+  128 MB Codex heap region and ticked from `between`; its routes, all under
+  `town/`, are listed at the top of the file. The page is `web/uo-town.html`
+  (hand-written, not the HTML plug's). Its state is in memory: a restart is a
+  new town. `src/uo_test.zig` also runs two of uoaix's proofs
+  (`src/gen/uo.zig`, `uo_town.zig`) against their `.expected` output.
 
 - **`src/ideas_app.zig`** is Idea Forge's site: `apps/ideas/IdeaServer.codex`'s
   network shell and `run.ps1`'s bridge, replaced. Every request goes to
@@ -144,13 +231,13 @@ is merged.
   tavern seats; about 24 MB), as tests.
   And a live town, paused until a watcher starts its day: `apps/uoaix/TownWatch.codex` (our fork; TownLiveProof's town kept
   between calls) built at start and ticked from `between` every 250 ms at 120 game
-  seconds a real one, watched at `/uo/town/` (`web/uo-town.html`, a canvas, over the
-  `/uo/town/events` stream). Three game days leave its Codex heap the same as one
-  (about 18 MB). Up to five players join (`/uo/town/join`), walk where they tap
-  (`/uo/town/go`, by the townsfolk's own routes), are greeted by the residents and
-  keepers, talk to them (`/uo/town/say`) and buy from a keeper (`/uo/town/offers`,
-  `/uo/town/buy`; only the first player's purse holds coin), and send a resident
-  home, to work or to the tavern for a game hour (`/uo/town/errand`). The UO server itself does not run here yet.
+  seconds a real one, watched at `town/` (`/uo/town/` in Gopher Chat; `web/uo-town.html`, a canvas, over the
+  `town/events` stream). Three game days leave its Codex heap the same as one
+  (about 18 MB). Up to five players join (`town/join`), walk where they tap
+  (`town/go`, by the townsfolk's own routes), are greeted by the residents and
+  keepers, talk to them (`town/say`) and buy from a keeper (`town/offers`,
+  `town/buy`; only the first player's purse holds coin), and send a resident
+  home, to work or to the tavern for a game hour (`town/errand`). The UO server itself does not run here yet.
 - A panic in one request ends the process.
 - The emitted runtime reserves its heap from the OS (4 GiB of address space, taken
   lazily) and never frees it: fine for a dev port, not yet for a 512 MB droplet.
