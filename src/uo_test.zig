@@ -139,6 +139,43 @@ test "a player walks the town for three game days: greeted at the shops, the tow
     try std.testing.expectEqual(t.after_day_one, t.after_day_three);
 }
 
+/// Ann (seat 0, the installation's purse) and Bo (seat 1, a purse of his
+/// own, empty) at the Provisioner's at nine in the morning: each asks the
+/// keeper's prices and buys one of the first.
+const Shopped = struct { ann_offers: usize, ann: []const u8, bo_offers: usize, bo: []const u8, valid: bool };
+
+fn shop() Shopped {
+    const w = watch.new();
+    if (watch.problem(w).len > 0) @panic("uo watch: no town");
+    var out: Shopped = .{ .ann_offers = 0, .ann = "", .bo_offers = 0, .bo = "", .valid = false };
+    if ((watch.join(w, 0, "Ann") catch -1) <= 0 or (watch.join(w, 1, "Bo") catch -1) <= 0) return out;
+    _ = watch.goal(w, 0, 1461, 1672);
+    _ = watch.goal(w, 1, 1461, 1673);
+    var s: i64 = 6 * 3600;
+    while (s <= 9 * 3600) : (s += 30) if (!watch.tick(w, s)) @panic("uo watch: a step failed");
+    _ = watch.say(w, 0, "vendor buy", 1000) catch "";
+    out.ann_offers = std.mem.count(u8, watch.offers(w, 0), "\"price\":");
+    out.ann = std.testing.allocator.dupe(u8, watch.buy(w, 0, 0, 1, 1001)) catch "";
+    _ = watch.say(w, 1, "vendor buy", 1002) catch "";
+    out.bo_offers = std.mem.count(u8, watch.offers(w, 1), "\"price\":");
+    out.bo = std.testing.allocator.dupe(u8, watch.buy(w, 1, 0, 1, 1003)) catch "";
+    out.valid = watch.valid(w);
+    return out;
+}
+
+test "players ask a keeper's prices and buy: the installation's purse pays, an empty one does not, the town valid" {
+    try giveWatchRegion();
+    const t = @import("stack.zig").onStack(request_stack, shop, .{});
+    defer std.testing.allocator.free(t.ann);
+    defer std.testing.allocator.free(t.bo);
+    std.debug.print("uo shop: Ann {d} offers, {s}\nuo shop: Bo {d} offers, {s}\nuo shop: valid {}\n", .{ t.ann_offers, t.ann, t.bo_offers, t.bo, t.valid });
+    try std.testing.expect(t.ann_offers > 0);
+    try std.testing.expect(std.mem.indexOf(u8, t.ann, "\"bought\":true") != null);
+    try std.testing.expect(t.bo_offers > 0);
+    try std.testing.expect(std.mem.indexOf(u8, t.bo, "\"bought\":false") != null);
+    try std.testing.expect(t.valid);
+}
+
 test "the town watch ticks three game days on a request's stack: shops open by their hours, the heap flat after the first" {
     try giveWatchRegion();
     const t = @import("stack.zig").onStack(request_stack, tickThreeDays, .{});

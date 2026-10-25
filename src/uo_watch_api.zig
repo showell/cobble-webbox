@@ -49,6 +49,25 @@ pub const api = struct {
         return lib.cx.utf8(lib.tw_greet(w, seconds));
     }
 
+    /// What the seat's player says (ASCII), heard by the townsfolk near it,
+    /// at `at` (the host's clock in hundredths of a second): JSON of the
+    /// lines said back and the handler's note. Lasting (a keeper's quote is
+    /// kept): no heap mark may be taken back past it.
+    pub fn say(w: Watch, slot: i64, words: []const u8, at: i64) error{NotAscii}![]const u8 {
+        return lib.cx.utf8(lib.tw_say(w, slot, try lib.cx.fromAscii(words), at));
+    }
+
+    /// The prices a keeper quoted the seat's player, as a JSON array.
+    pub fn offers(w: Watch, slot: i64) []const u8 {
+        return lib.cx.utf8(lib.tw_offers(w, slot));
+    }
+
+    /// The seat's player buys `quantity` of offer `i`: JSON of whether a
+    /// sale was made and what the keeper said. Lasting, as `say`.
+    pub fn buy(w: Watch, slot: i64, i: i64, quantity: i64, at: i64) []const u8 {
+        return lib.cx.utf8(lib.tw_buy(w, slot, i, quantity, at));
+    }
+
     /// Damian's own checks of the town (TLC1) and of its currency.
     pub fn valid(w: Watch) bool {
         return lib.tw_valid(w);

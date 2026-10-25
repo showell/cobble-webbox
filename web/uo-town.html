@@ -29,6 +29,12 @@
   .hint { color: var(--dim); font-size: 13px; }
   #you form { display: flex; gap: 6px; }
   #you input { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+  #you .phrases { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+  #you .phrases button { background: var(--panel); border-color: var(--line); font-size: 13px; padding: 2px 8px; }
+  #you table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 14px; }
+  #you td { padding: 3px 4px; border-bottom: 1px dotted var(--line); }
+  #you td.price { color: #e8c86a; white-space: nowrap; }
+  #you .note { color: var(--dim); font-size: 13px; margin-top: 4px; }
   #you button { font: inherit; color: var(--ink); background: #4a5a33; border: 1px solid #8a9a63; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
 </style>
 </head>
@@ -153,9 +159,13 @@ function take(snapshot) {
   for (const p of people) prev[p.name] = { x: p.drawX ?? p.x, y: p.drawY ?? p.y };
   for (const p of players) prev["seat " + p.seat] = { x: p.drawX ?? p.x, y: p.drawY ?? p.y };
   players = snapshot.players || [];
-  for (const line of snapshot.said || []) {
+  for (const line of [...(snapshot.said || []), ...(snapshot.spoken || [])]) {
+    if (!line.who) continue;
+    // One bubble a speaker: the newest line replaces what it said before.
+    const old = bubbles.findIndex(x => x.who === line.who);
+    if (old >= 0) bubbles.splice(old, 1);
     bubbles.push({ who: line.who, text: line.text, until: now + 6000 });
-    crier(`${line.who} to ${line.to}: “${line.text}”`);
+    crier(line.to ? `${line.who} to ${line.to}: “${line.text}”` : `${line.who}: “${line.text}”`);
   }
   seconds = snapshot.seconds;
   people = snapshot.people;
@@ -272,9 +282,9 @@ function draw() {
   if (dark > 0) { ctx.fillStyle = `rgba(10,14,40,${dark})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   // Speech bubbles over whoever spoke (a resident by name, a keeper by trade).
   const now = performance.now();
-  while (bubbles.length && bubbles[0].until < now) bubbles.shift();
+  for (let i = bubbles.length - 1; i >= 0; i--) if (bubbles[i].until < now) bubbles.splice(i, 1);
   for (const b of bubbles) {
-    const who = people.find(p => p.name === b.who) || keepers.find(k => k.title === b.who);
+    const who = people.find(p => p.name === b.who) || keepers.find(k => k.title === b.who) || players.find(p => p.name === b.who);
     if (!who || who.hitX === undefined) continue;
     const text = b.text.length > 60 ? b.text.slice(0, 57) + "…" : b.text;
     ctx.font = `${12 * d}px Georgia`;
@@ -302,11 +312,59 @@ canvas.addEventListener("click", e => {
   showCard();
 });
 
+// Copper as the keepers count it: a silver is 10, a gold 700.
+function coins(c) {
+  const g = Math.floor(c / 700), s = Math.floor(c % 700 / 10), k = c % 10;
+  return [g && g + "g", s && s + "s", (k || !(g || s)) && k + "c"].filter(Boolean).join(" ");
+}
+
 function showYou() {
   const you = document.getElementById("you");
   if (!me) return;
-  you.innerHTML = "";
-  you.append(`You are ${me.name}. Tap open ground to walk there; walk into a shop and its keeper greets you.`);
+  you.innerHTML = `<div>You are <b></b>. Tap open ground to walk there. In a shop, say “vendor buy”.</div>
+    <form id="sayform"><input id="words" maxlength="120" placeholder="say something" autocomplete="off"><button>Say</button></form>
+    <div class="phrases"><button data-w="vendor buy">vendor buy</button><button data-w="hail">hail</button><button data-w="any news?">any news?</button></div>
+    <div id="offers"></div><div class="note" id="note"></div>`;
+  you.querySelector("b").textContent = me.name;
+  you.querySelector("#sayform").addEventListener("submit", e => { e.preventDefault(); const w = document.getElementById("words"); speak(w.value); w.value = ""; });
+  for (const b of you.querySelectorAll(".phrases button")) b.addEventListener("click", () => speak(b.dataset.w));
+}
+
+async function speak(words) {
+  words = words.trim();
+  if (!words || !me) return;
+  const r = await fetch(`say?t=${me.token}&words=${encodeURIComponent(words)}`, { method: "POST" });
+  if (r.status === 403) return forget();
+  if (!r.ok) { document.getElementById("note").textContent = await r.text(); return; }
+  const answer = await r.json();
+  document.getElementById("note").textContent = answer.heard && answer.heard.length ? "" : "Nobody near answers.";
+  if ((answer.note || "").includes("buy menu")) showOffers();
+}
+
+async function showOffers() {
+  const r = await fetch(`offers?t=${me.token}`);
+  if (r.status === 403) return forget();
+  const items = await r.json(), box = document.getElementById("offers");
+  box.innerHTML = "";
+  if (!items.length) return;
+  const table = document.createElement("table");
+  items.forEach((it, i) => {
+    const row = table.insertRow();
+    row.insertCell().textContent = it.name + (it.quantity > 1 ? ` (${it.quantity})` : "");
+    const price = row.insertCell(); price.className = "price"; price.textContent = coins(it.price);
+    const b = document.createElement("button"); b.textContent = "Buy";
+    b.addEventListener("click", () => purchase(i));
+    row.insertCell().append(b);
+  });
+  box.append(table);
+}
+
+async function purchase(i) {
+  const r = await fetch(`buy?t=${me.token}&i=${i}&n=1`, { method: "POST" });
+  if (r.status === 403) return forget();
+  const answer = await r.json(), note = document.getElementById("note");
+  note.textContent = answer.bought ? "Bought." : "Not bought: " + ((answer.note || "").replace(/^vendor refused: /, "") || "no quote stands; say vendor buy again.");
+  showOffers();
 }
 
 // A seat the server no longer holds for us (idle, or a restart): join again.

@@ -11,6 +11,9 @@
 //!   POST /uo/town/speed?x=N  game seconds a real one: 60, 120, 600 or 1200
 //!   POST /uo/town/join?name=Ann       a seat: `{"token":..,"seat":n}`, 503 when all five are taken
 //!   POST /uo/town/go?t=TOKEN&x=&y=    the seat's body sent walking there
+//!   POST /uo/town/say?t=TOKEN&words=  heard by the townsfolk near it; "vendor buy" to a keeper
+//!   GET  /uo/town/offers?t=TOKEN      the prices a keeper quoted it
+//!   POST /uo/town/buy?t=TOKEN&i=&n=   buy n of offer i
 //!
 //! A proof's run starts its Codex heap from its base, so it costs nothing
 //! that lasts. The town lives below its heap's mark; each tick's scratch
@@ -60,9 +63,13 @@ var problem: []const u8 = "";
 /// The town's five seats (TownWatch's, the account's character slots), each
 /// held by the token its player was given; a seat quiet for `seat_idle_ns`
 /// is free again, its body left where it stands.
-const Seat = struct { token: [16]u8 = undefined, held: bool = false, last_ns: i96 = 0 };
+const Seat = struct { token: [16]u8 = undefined, held: bool = false, last_ns: i96 = 0, name: [16]u8 = undefined, name_len: usize = 0 };
 var seats: [5]Seat = @splat(.{});
 const seat_idle_ns: i96 = 120 * std.time.ns_per_s;
+
+/// What players said and were answered since the last tick, JSON objects
+/// joined by commas: the next tick's feed carries them as "spoken".
+var spoken: std.ArrayList(u8) = .empty;
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     _ = io;
@@ -94,7 +101,8 @@ fn advance(seconds: i64) !void {
     // townsfolk said to the players this tick.
     const said = watch.greet(kept, seconds);
     const town_json = watch.json(kept, seconds);
-    try now_json.print(gpa, "{{\"speed\":{d},\"said\":{s},", .{ speed, said });
+    try now_json.print(gpa, "{{\"speed\":{d},\"said\":{s},\"spoken\":[{s}],", .{ speed, said, spoken.items });
+    spoken.clearRetainingCapacity();
     try now_json.appendSlice(gpa, town_json[1..]);
 }
 
@@ -155,17 +163,84 @@ fn join(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: 
     _ = std.fmt.bufPrint(&seat.token, "{x}", .{bytes}) catch unreachable;
     seat.held = true;
     seat.last_ns = Io.Clock.now(.awake, io).nanoseconds;
+    @memcpy(seat.name[0..name.len], name);
+    seat.name_len = name.len;
     return req.respond(try std.fmt.allocPrint(alloc, "{{\"token\":\"{s}\",\"seat\":{d}}}", .{ &seat.token, slot }), .{ .extra_headers = &.{json_ct} });
+}
+
+/// The seat holding the request's token `t`, its quiet time restarted; null
+/// when no seat holds it.
+fn seatOf(io: Io, whole: []const u8) ?usize {
+    const t = http.queryValue(whole, "t") orelse return null;
+    for (&seats, 0..) |*seat, i| if (seat.held and std.mem.eql(u8, &seat.token, t)) {
+        seat.last_ns = Io.Clock.now(.awake, io).nanoseconds;
+        return i;
+    };
+    return null;
+}
+
+/// The host's clock for the townsfolk's quotes: hundredths of a second, the
+/// PIT's rate, which a keeper's quote lasts a minute of.
+fn ticksNow(io: Io) i64 {
+    return @intCast(@divFloor(Io.Clock.now(.awake, io).nanoseconds, 10 * std.time.ns_per_ms));
+}
+
+/// `answer` (TownWatch's `{heard, ...}`) in "spoken" for every watcher,
+/// after the player's own words when it spoke.
+fn tellAll(slot: usize, words: ?[]const u8, answer: []const u8) !void {
+    if (words) |said| {
+        if (spoken.items.len > 0) try spoken.append(gpa, ',');
+        const name = seats[slot].name[0..seats[slot].name_len];
+        try spoken.print(gpa, "{{\"who\":{f},\"to\":\"\",\"text\":{f}}}", .{ std.json.fmt(name, .{}), std.json.fmt(said, .{}) });
+    }
+    const heard = std.mem.indexOf(u8, answer, "\"heard\":[") orelse return;
+    const from = heard + "\"heard\":[".len;
+    const to = std.mem.indexOfPos(u8, answer, from, "]") orelse return;
+    if (to == from) return;
+    if (spoken.items.len > 0) try spoken.append(gpa, ',');
+    try spoken.appendSlice(gpa, answer[from..to]);
+}
+
+/// The seat's player speaks: the townsfolk near it hear it. Lasting (a
+/// keeper's quote is kept), so the Codex heap is not taken back.
+fn say(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: []const u8) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const slot = seatOf(io, whole) orelse return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
+    const words = http.formDecode(alloc, http.queryValue(whole, "words") orelse "") catch "";
+    const fine = words.len >= 1 and words.len <= 120 and for (words) |c| {
+        if (c < 32 or c > 126) break false;
+    } else true;
+    if (!fine) return req.respond("words are 1 to 120 printable ASCII characters\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+    const answer = try alloc.dupe(u8, try watch.say(kept, @intCast(slot), words, ticksNow(io)));
+    try tellAll(slot, words, answer);
+    return req.respond(answer, .{ .extra_headers = &.{json_ct} });
+}
+
+/// The prices a keeper quoted the seat's player: read only, so the Codex
+/// heap goes back.
+fn offers(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: []const u8) !void {
+    if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
+    const slot = seatOf(io, whole) orelse return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
+    const mark = watch.heapMark();
+    defer watch.heapBack(mark);
+    return req.respond(try alloc.dupe(u8, watch.offers(kept, @intCast(slot))), .{ .extra_headers = &.{json_ct} });
+}
+
+/// The seat's player buys `n` of offer `i`. Lasting, as `say`.
+fn buy(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: []const u8) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const slot = seatOf(io, whole) orelse return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
+    const i = std.fmt.parseInt(i64, http.queryValue(whole, "i") orelse "", 10) catch -1;
+    const n = std.fmt.parseInt(i64, http.queryValue(whole, "n") orelse "1", 10) catch 0;
+    const answer = try alloc.dupe(u8, watch.buy(kept, @intCast(slot), i, n, ticksNow(io)));
+    try tellAll(slot, null, answer);
+    return req.respond(answer, .{ .extra_headers = &.{json_ct} });
 }
 
 /// The seat holding token `t` sends its body to (x, y).
 fn go(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
     if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
-    const t = http.queryValue(whole, "t") orelse "";
-    const slot = for (seats, 0..) |seat, i| {
-        if (seat.held and std.mem.eql(u8, &seat.token, t)) break i;
-    } else return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
-    seats[slot].last_ns = Io.Clock.now(.awake, io).nanoseconds;
+    const slot = seatOf(io, whole) orelse return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
     const x = std.fmt.parseInt(i64, http.queryValue(whole, "x") orelse "", 10) catch -1;
     const y = std.fmt.parseInt(i64, http.queryValue(whole, "y") orelse "", 10) catch -1;
     if (!watch.goal(kept, @intCast(slot), x, y)) return req.respond("not a place on the map\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
@@ -192,6 +267,9 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     if (std.mem.eql(u8, path, "/town/speed")) return setSpeed(req, io, whole);
     if (std.mem.eql(u8, path, "/town/join")) return join(req, io, alloc, whole);
     if (std.mem.eql(u8, path, "/town/go")) return go(req, io, whole);
+    if (std.mem.eql(u8, path, "/town/say")) return say(req, io, alloc, whole);
+    if (std.mem.eql(u8, path, "/town/offers")) return offers(req, io, alloc, whole);
+    if (std.mem.eql(u8, path, "/town/buy")) return buy(req, io, alloc, whole);
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/town/")) return req.respond(@embedFile("uo_town_page"), .{ .extra_headers = &.{http.html_ct} });
     if (std.mem.eql(u8, path, "/town/map") or std.mem.eql(u8, path, "/town/now")) {
