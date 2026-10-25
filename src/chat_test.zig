@@ -78,7 +78,7 @@ const Root = struct {
         self.arena.deinit();
     }
     fn path(self: *Root, rel: []const u8) []const u8 {
-        return std.fs.path.join(self.arena.allocator(), &.{ self.data, "codex-chat", rel }) catch unreachable;
+        return std.fs.path.join(self.arena.allocator(), &.{ self.data, rel }) catch unreachable;
     }
 };
 

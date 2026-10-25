@@ -36,7 +36,7 @@ const APPS = {
   {name = "uo", root = "apps/uoaix/proofs/GameVendorReplay.codex", out = "src/gen/uo.zig", exports = {"opening"}},
   {name = "uo-town", root = "apps/uoaix/proofs/TownLiveProof.codex", out = "src/gen/uo_town.zig", exports = {"opening"}},
   {name = "uo-watch", root = "apps/uoaix/TownWatch.codex", out = "src/gen/uo_watch.zig",
-   exports = {"tw-new", "tw-tick", "tw-json", "tw-map-json"}},
+   exports = {"tw-new", "tw-tick", "tw-json", "tw-map-json", "tw-join", "tw-leave", "tw-goal", "tw-greet", "tw-valid", "tw-say", "tw-offers", "tw-buy", "tw-errand"}},
 }
 
 -- The chapter that makes a unit a library: `zig-library` (the ZigEmitter's

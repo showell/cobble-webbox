@@ -12,8 +12,8 @@ pub const site = webbox.site.Site(app);
 pub fn main(init: std.process.Init.Minimal) !void {
     var env = try std.process.Environ.createMap(init.environ, std.heap.page_allocator);
     defer env.deinit();
-    // The data root the chat's files go under (codex-chat/ in it) when no
-    // config names one: CHAT_DATA, else data/ under where the server runs.
+    // The chat's own folder when no config names one: CHAT_DATA, else
+    // data/codex-chat/ under where the server runs.
     if (env.get("CHAT_DATA")) |p| app.data_dir = try std.heap.page_allocator.dupe(u8, p);
     try @import("webbox_linux").linux_host.Server(site).run(init, .{
         .name = "codex-chat",
@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         // The host opens a second root at the start; the chat keeps no
         // secret in it (its tokens are in its own files, under data/).
         .default_auth_dir = "auth",
-        .routes_hint = "(/codex-chat/, /codex-chat/api/chat/*)",
+        .routes_hint = "(/, /api/chat/*)",
         .free_space = unread,
     }, report);
 }
@@ -44,5 +44,5 @@ fn report(started: *const site.Started) void {
         std.debug.print("codex-chat: not serving the files under {s}: {s}\n", .{ started.app.files, started.app.problem });
         std.process.exit(1);
     }
-    std.debug.print("codex-chat: state in {s}/codex-chat/\n", .{started.app.files});
+    std.debug.print("codex-chat: state in {s}/\n", .{started.app.files});
 }

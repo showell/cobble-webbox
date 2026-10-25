@@ -1,6 +1,6 @@
 //! uoaix's live town, served: webbox's Linux host with uo_app.zig.
 //!
-//! Run:  zig build serve-uo       (on http://localhost:9107/uo/town/)
+//! Run:  zig build serve-uo       (on http://localhost:9107/town/)
 
 const std = @import("std");
 const webbox = @import("webbox");
@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_port = 9107,
         .default_trusted_proxy = "127.0.0.1",
         .default_auth_dir = "auth",
-        .routes_hint = "(/uo/town/)",
+        .routes_hint = "(/town/)",
         .free_space = unread,
     }, report);
 }

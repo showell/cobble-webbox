@@ -2,18 +2,18 @@
 //! townsfolk, shops and trade, compiled to Zig, src/gen/uo_watch.zig), kept
 //! and ticked between requests, and the players who join it.
 //!
-//!   GET  /uo/town/           the watcher's page (web/uo-town.html)
-//!   GET  /uo/town/map        the map's bounds and shops, JSON, once
-//!   GET  /uo/town/now        where everyone is, JSON
-//!   GET  /uo/town/events     the same, each tick, as a stream
-//!   POST /uo/town/speed?x=N  game seconds a real one: 0 (paused, as it starts), 60, 120, 600 or 1200
-//!   POST /uo/town/join?name=Ann       a seat: `{"token":..,"seat":n}`, 503 when all five are taken
-//!   POST /uo/town/go?t=TOKEN&x=&y=    the seat's body sent walking there
-//!   POST /uo/town/say?t=TOKEN&words=  heard by the townsfolk near it; "vendor buy" to a keeper
-//!   GET  /uo/town/offers?t=TOKEN      the prices a keeper quoted it
-//!   POST /uo/town/buy?t=TOKEN&i=&n=   buy n of offer i
-//!   POST /uo/town/errand?t=TOKEN&who=1..3&do=home|work|tavern   a resident sent there for a game hour
-//!   POST /uo/town/reset      start over: a new town at six, paused, every seat free
+//!   GET  /town/           the watcher's page (web/uo-town.html)
+//!   GET  /town/map        the map's bounds and shops, JSON, once
+//!   GET  /town/now        where everyone is, JSON
+//!   GET  /town/events     the same, each tick, as a stream
+//!   POST /town/speed?x=N  game seconds a real one: 0 (paused, as it starts), 60, 120, 600 or 1200
+//!   POST /town/join?name=Ann       a seat: `{"token":..,"seat":n}`, 503 when all five are taken
+//!   POST /town/go?t=TOKEN&x=&y=    the seat's body sent walking there
+//!   POST /town/say?t=TOKEN&words=  heard by the townsfolk near it; "vendor buy" to a keeper
+//!   GET  /town/offers?t=TOKEN      the prices a keeper quoted it
+//!   POST /town/buy?t=TOKEN&i=&n=   buy n of offer i
+//!   POST /town/errand?t=TOKEN&who=1..3&do=home|work|tavern   a resident sent there for a game hour
+//!   POST /town/reset      start over: a new town at six, paused, every seat free
 //!
 //! The town lives below its heap's mark; each tick's scratch is given back.
 //! A player's join, words, purchase and errand change what the town keeps,
@@ -26,8 +26,6 @@ const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
 const watch = @import("uo_watch_api.zig").api;
-
-pub const prefix = "/uo";
 
 /// The Codex heap's region: the kept town uses about 18 MB, its players'
 /// joins, words and purchases a little more each.
@@ -67,6 +65,15 @@ fn note(comptime fmt: []const u8, args: anytype) void {
 const events_key = "uo-town";
 
 pub const StartReport = struct { problem: []const u8 };
+
+/// What the town says to a host about itself: its setup's line, for the log.
+pub const hosting = struct {
+    pub const data_name = "the UO town";
+    pub fn describeStart(r: StartReport, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (r.problem.len > 0) return w.print("NOT serving: {s}\n", .{r.problem});
+        try w.print("at town/, paused until a watcher starts its day\n", .{});
+    }
+};
 
 var kept: watch.Watch = undefined;
 var game_seconds: i64 = game_start;
@@ -363,8 +370,9 @@ fn setSpeed(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
 
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, bus: *webbox.bus.Bus) !void {
     const whole = try http.target(req, alloc);
-    const path = http.pathUnder(http.pathOf(whole), prefix) orelse return http.notFound(req);
-    if (std.mem.eql(u8, path, "/town")) return http.redirect(req, prefix ++ "/town/");
+    const path = http.pathOf(whole);
+    // Relative, so it lands under whatever prefix a host mounts the town at.
+    if (std.mem.eql(u8, path, "/town")) return http.redirect(req, "town/");
     if (std.mem.eql(u8, path, "/town/events")) return webbox.sse.forward(req, bus, events_key);
     if (std.mem.eql(u8, path, "/town/speed")) return setSpeed(req, io, whole);
     if (std.mem.eql(u8, path, "/town/join")) return join(req, io, alloc, whole);

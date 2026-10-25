@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(chat_exe);
     const serve_chat = b.addRunArtifact(chat_exe);
     serve_chat.step.dependOn(b.getInstallStep());
-    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106/codex-chat/ (CHAT_PORT), its state in data/codex-chat/ (CHAT_DATA)").dependOn(&serve_chat.step);
+    b.step("serve-chat", "Serve Codex Chat on http://localhost:9106/ (CHAT_PORT), its state in data/codex-chat/ (CHAT_DATA)").dependOn(&serve_chat.step);
 
     // uoaix's first proofs (apps/uoaix/proofs/GameVendorReplay.codex and
     // TownLiveProof.codex): zig build serve-uo.
@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(uo_exe);
     const serve_uo = b.addRunArtifact(uo_exe);
     serve_uo.step.dependOn(b.getInstallStep());
-    b.step("serve-uo", "Serve uoaix's live town on http://localhost:9107/uo/town/ (UO_PORT)").dependOn(&serve_uo.step);
+    b.step("serve-uo", "Serve uoaix's live town on http://localhost:9107/town/ (UO_PORT)").dependOn(&serve_uo.step);
 
     // **CODEX CHAT AS A MODULE**, for a site that serves it among its own
     // routes (angry-gopher, under /codex-chat): src/chat_app.zig's setup,

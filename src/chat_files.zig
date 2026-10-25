@@ -2,11 +2,12 @@
 //! ChatStore.codex performs (read-text, write-file, append-file, list-dir,
 //! make-dir), which the ZigEmitter turns into calls on `cx_file_host`.
 //!
-//! **EVERY PATH IS UNDER THE HOST'S DATA ROOT**, through webbox's store, so
-//! the files keep FAT's rules on Linux as on the bare-metal host, and sit
-//! where the host keeps its own: `data/codex-chat/...` in a checkout, and
-//! the attached volume's data root on a droplet, beside Gopher Chat's
-//! `chat/`. ChatStore names every path from `codex-chat/`.
+//! **EVERY PATH IS UNDER THE FOLDER THE HOST GIVES THE CHAT**, through
+//! webbox's store, so the files keep FAT's rules on Linux as on the
+//! bare-metal host. ChatStore names every path from `codex-chat/` (its own
+//! folder, on Damian's hosts too); here that folder IS the one the host
+//! gives: `data/codex-chat/` for a site that mounts the chat at
+//! `/codex-chat` (webbox's combo), or a checkout's default.
 //!
 //! What a call answers lives until the next call (`answers` is reset as
 //! each one starts), which is as long as the emitted code holds it: it
@@ -22,7 +23,10 @@ const std = @import("std");
 const Io = @import("host_io").Io;
 const store = @import("webbox").store;
 
-var root: []const u8 = "data";
+var root: []const u8 = "data/codex-chat";
+
+/// The folder ChatStore names its files from.
+const store_folder = "codex-chat";
 var io: Io = undefined;
 var answers: std.heap.ArenaAllocator = undefined;
 
@@ -32,8 +36,8 @@ pub fn host(comptime FileHost: type) FileHost {
 }
 
 /// Where the files are, the Io they are reached through, and the allocator
-/// the answers come from, set as the host starts: `data_dir` is the host's
-/// data root.
+/// the answers come from, set as the host starts: `data_dir` is the folder
+/// ChatStore's `codex-chat/` is.
 pub fn use(host_io: Io, base: std.mem.Allocator, data_dir: []const u8) void {
     io = host_io;
     root = data_dir;
@@ -46,12 +50,16 @@ fn call() std.mem.Allocator {
     return answers.allocator();
 }
 
-/// `path` under the data root, or null for a path that would leave it.
+/// ChatStore's `path` in the chat's folder, or null for one outside
+/// `codex-chat/` or that would leave it.
 fn under(a: std.mem.Allocator, path: []const u8) ?[]const u8 {
-    if (path.len == 0 or path[0] == '/') return null;
-    var parts = std.mem.splitScalar(u8, path, '/');
-    while (parts.next()) |p| if (std.mem.eql(u8, p, "..")) return null;
-    return std.fs.path.join(a, &.{ root, path }) catch null;
+    if (!std.mem.startsWith(u8, path, store_folder)) return null;
+    const rest = path[store_folder.len..];
+    if (rest.len == 0) return a.dupe(u8, root) catch null;
+    if (rest[0] != '/' or rest.len == 1) return null;
+    var parts = std.mem.splitScalar(u8, rest[1..], '/');
+    while (parts.next()) |p| if (p.len == 0 or std.mem.eql(u8, p, "..")) return null;
+    return std.fs.path.join(a, &.{ root, rest[1..] }) catch null;
 }
 
 fn read(path: []const u8) ?[]const u8 {
