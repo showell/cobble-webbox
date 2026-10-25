@@ -28,8 +28,11 @@ const http = webbox.http;
 const watch = @import("uo_watch_api.zig").api;
 
 /// The Codex heap's region: the kept town uses about 18 MB, its players'
-/// joins, words and purchases a little more each.
-const heap_region: usize = 128 * 1024 * 1024;
+/// joins, words and purchases a little more each, and a day's ticks reach
+/// 37 MB (uo_test's town watch, the same after three). 64 MB: the town sits
+/// beside Codex Chat's 256 MB in angry-gopher's kernel, whose judge boots it
+/// in 512 MB with a 40 MB upload on top.
+const heap_region: usize = 64 * 1024 * 1024;
 
 /// The town's clock: a tick a quarter second, from six in the morning, at
 /// `speed` game seconds a real one (120: a game day in 12 minutes). A
@@ -190,6 +193,18 @@ pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.W
         _ = watch.leave(kept, @intCast(i));
         note("{s} left (quiet two minutes): tw-leave frees seat {d}, the body stays where it stands", .{ seat.name[0..seat.name_len], i });
     };
+    // **A PAUSED TOWN LETS THE MACHINE SLEEP** (zig-metal-unikernel's sleeps
+    // gate: an idle kernel woke four times a second for a town nobody
+    // started): nothing new, no tick. A request (a speed, a join, words)
+    // runs this again; a held seat wakes it when it falls quiet.
+    if (speed == 0 and log.items.len == 0 and spoken.items.len == 0) {
+        var soonest: ?i96 = null;
+        for (seats) |seat| if (seat.held) {
+            const quiet_at = seat.last_ns + seat_idle_ns + 1;
+            soonest = if (soonest) |s| @min(s, quiet_at) else quiet_at;
+        };
+        return if (soonest) |s| .{ .at = s } else .idle;
+    }
     const target: i64 = base_seconds + @as(i64, @intCast(@divFloor((now.awake_ns - t0) * speed, std.time.ns_per_s)));
     // A tick when the clock has moved; a feed too when only a request has
     // (paused, a join or words are still news to every watcher).
