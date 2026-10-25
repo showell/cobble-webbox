@@ -322,10 +322,10 @@ function take(snapshot) {
   }
   for (const entry of snapshot.log || []) logLine(entry.text);
   showShops();
-  // Step 3: this browser's body inside a shop's walls.
+  // Step 3: this browser's body stopped where a keeper can hear it.
   const mine = me && players.find(p => p.seat === me.seat);
   showWhere(mine);
-  if (mine && map.shops.some(s => mine.x >= s.x1 && mine.x <= s.x2 && mine.y >= s.y1 && mine.y <= s.y2)) did(3);
+  if (mine && !walking && near) did(3);
   // A path worn over a shop's label: the labels go back on top.
   if (wornSince) { paintPlaces(); paintShops(); wornSince = false; }
   const t = hhmm(seconds);

@@ -64,11 +64,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = imports,
     }) });
-    uo_exe.root_module.addAnonymousImport("uo_town_page", .{ .root_source_file = b.path("web/uo-town.html") });
+    withTownPage(b, uo_exe.root_module);
     b.installArtifact(uo_exe);
     const serve_uo = b.addRunArtifact(uo_exe);
     serve_uo.step.dependOn(b.getInstallStep());
-    b.step("serve-uo", "Serve uoaix's proofs and live town on http://localhost:9107/uo/town/ (UO_PORT)").dependOn(&serve_uo.step);
+    b.step("serve-uo", "Serve uoaix's live town on http://localhost:9107/uo/town/ (UO_PORT)").dependOn(&serve_uo.step);
 
     // **CODEX CHAT AS A MODULE**, for a site that serves it among its own
     // routes (angry-gopher, under /codex-chat): src/chat_app.zig's setup,
@@ -80,6 +80,15 @@ pub fn build(b: *std.Build) void {
         .imports = &.{ imports[0], imports[1] },
     });
     withChatPage(b, codex_chat);
+
+    // **THE UO TOWN AS A MODULE**, the same way (angry-gopher, under /uo):
+    // src/uo_app.zig's setup, between, routes and bodyLimit over TownWatch's
+    // library, its page compiled in.
+    const uo_town = b.addModule("uo_town", .{
+        .root_source_file = b.path("src/uo_app.zig"),
+        .imports = &.{ imports[0], imports[1] },
+    });
+    withTownPage(b, uo_town);
 
     // The sites' own tests, and the libraries answering through the emitted Zig.
     const tests = b.step("test", "The sites' tests, and the Codex libraries' answers through the emitted Zig");
@@ -107,6 +116,11 @@ fn withChatPage(b: *std.Build, m: *std.Build.Module) void {
 fn withUoExpected(b: *std.Build, m: *std.Build.Module) void {
     m.addAnonymousImport("uo_expected", .{ .root_source_file = b.path("../cobblestone-pin/apps/uoaix/proofs/GameVendorReplay.expected") });
     m.addAnonymousImport("uo_town_expected", .{ .root_source_file = b.path("../cobblestone-pin/apps/uoaix/proofs/TownLiveProof.expected") });
+}
+
+/// The page uo_app.zig serves at `/uo/town/`, as `@embedFile("uo_town_page")`.
+fn withTownPage(b: *std.Build, m: *std.Build.Module) void {
+    m.addAnonymousImport("uo_town_page", .{ .root_source_file = b.path("web/uo-town.html") });
 }
 
 /// The page ideas_app.zig serves at `/`, as `@embedFile("idea_forge_page")`.

@@ -101,6 +101,9 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     const mark = watch.heapMark();
     map_json = try base.dupe(u8, watch.mapJson(kept));
     watch.heapBack(mark);
+    // The first tick, at six: the shops shut or open by their hours before
+    // anyone sees the town.
+    if (!watch.tick(kept, game_start)) return .{ .problem = "the town's first tick failed" };
     try advance(io, game_start);
     return .{ .problem = "" };
 }
