@@ -3,7 +3,7 @@
     .version = "0.0.0",
     .fingerprint = 0xedd2d60aea5df847,
     .minimum_zig_version = "0.17.0",
-    .paths = .{ "build.zig", "build.zig.zon", "src", "tools", "web" },
+    .paths = .{ "build.zig", "build.zig.zon", "assets.zon", "src", "tools", "web" },
     .dependencies = .{
         // The web-server-in-a-box library: zig-webbox, a sibling checkout
         // (../zig-webbox), modules `webbox`, `webbox_linux` and `host_io`.

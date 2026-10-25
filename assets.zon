@@ -1,0 +1,13 @@
+// **WHAT THE MOUNTED APPS SERVE BESIDES THEIR CODE** (webbox's Phase B
+// contract, as each application's assets.zon): `.embedded`, files compiled
+// in by name, the pages of Codex Chat (src/chat_app.zig) and the UO town
+// (src/uo_app.zig), which a host's kernel embeds when it mounts them
+// (zig-metal-unikernel's addAppKernel `parts`); `.site`, directories read at
+// request time (none).
+.{
+    .embedded = .{
+        .{ .name = "chat_page", .path = "web/chat.html", .built_by = "git" },
+        .{ .name = "uo_town_page", .path = "web/uo-town.html", .built_by = "git" },
+    },
+    .site = .{},
+}
