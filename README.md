@@ -24,7 +24,7 @@ From this checkout, beside a Cobblestone checkout at `../cobblestone-pin`
 
     zig build serve-chat    # Codex Chat, http://localhost:9106/codex-chat/ (CHAT_PORT), on data/codex-chat.img (CHAT_DISK)
     zig build serve-ideas   # Idea Forge, http://localhost:9105 (IDEAS_PORT)
-    zig build serve-uo      # uoaix's live town, http://localhost:9107/uo/town/, and two proofs (UO_PORT)
+    zig build serve-uo      # uoaix's live town, http://localhost:9107/uo/town/ (UO_PORT)
     zig build serve         # the games, http://localhost:9104 (COBBLE_PORT)
     zig build test
 
@@ -138,11 +138,11 @@ is merged.
   day refused (429), a claim, a foreign claim refused (404), the ledger with its
   holder masked, window shopping.
 - Two of uoaix's proofs print their expected lines byte for byte through the emitted
-  Zig, on a request's 16 MB stack in a host-given region, as tests and as routes:
+  Zig, on a request's 16 MB stack in a host-given region:
   `GameVendorReplay` (real buy and sell packets against a vendor; about 75 MB of Codex
-  heap) at `/uo/vendor-proof`, and `TownLiveProof` (three residents walking a
-  128x224 town to lodging, work and tavern seats; about 24 MB) at `/uo/town-proof`.
-  And a live town: `apps/uoaix/TownWatch.codex` (our fork; TownLiveProof's town kept
+  heap) and `TownLiveProof` (three residents walking a 128x224 town to lodging, work and
+  tavern seats; about 24 MB), as tests.
+  And a live town, paused until a watcher starts its day: `apps/uoaix/TownWatch.codex` (our fork; TownLiveProof's town kept
   between calls) built at start and ticked from `between` every 250 ms at 120 game
   seconds a real one, watched at `/uo/town/` (`web/uo-town.html`, a canvas, over the
   `/uo/town/events` stream). Three game days leave its Codex heap the same as one

@@ -1,14 +1,12 @@
-//! uoaix on webbox: two of apps/uoaix/proofs/, each run by a request and
-//! answered as text (its lines as its `.expected` has them), and a live
-//! town, apps/uoaix/TownWatch.codex, kept and ticked between requests.
+//! uoaix on webbox: a live town, apps/uoaix/TownWatch.codex (Damian's
+//! townsfolk, shops and trade, compiled to Zig, src/gen/uo_watch.zig), kept
+//! and ticked between requests, and the players who join it.
 //!
-//!   GET /uo/vendor-proof    GameVendorReplay (src/gen/uo.zig)
-//!   GET /uo/town-proof      TownLiveProof (src/gen/uo_town.zig)
-//!   GET /uo/town/           the watcher's page (web/uo-town.html)
-//!   GET /uo/town/map        the map's bounds and shops, JSON, once
-//!   GET /uo/town/now        where everyone is, JSON
-//!   GET /uo/town/events     the same, each tick, as a stream
-//!   POST /uo/town/speed?x=N  game seconds a real one: 60, 120, 600 or 1200
+//!   GET  /uo/town/           the watcher's page (web/uo-town.html)
+//!   GET  /uo/town/map        the map's bounds and shops, JSON, once
+//!   GET  /uo/town/now        where everyone is, JSON
+//!   GET  /uo/town/events     the same, each tick, as a stream
+//!   POST /uo/town/speed?x=N  game seconds a real one: 0 (paused, as it starts), 60, 120, 600 or 1200
 //!   POST /uo/town/join?name=Ann       a seat: `{"token":..,"seat":n}`, 503 when all five are taken
 //!   POST /uo/town/go?t=TOKEN&x=&y=    the seat's body sent walking there
 //!   POST /uo/town/say?t=TOKEN&words=  heard by the townsfolk near it; "vendor buy" to a keeper
@@ -16,23 +14,22 @@
 //!   POST /uo/town/buy?t=TOKEN&i=&n=   buy n of offer i
 //!   POST /uo/town/errand?t=TOKEN&who=1..3&do=home|work|tavern   a resident sent there for a game hour
 //!
-//! A proof's run starts its Codex heap from its base, so it costs nothing
-//! that lasts. The town lives below its heap's mark; each tick's scratch
-//! is given back. The host's request turns keep all of it one at a time,
-//! `between` included.
+//! The town lives below its heap's mark; each tick's scratch is given back.
+//! A player's join, words, purchase and errand change what the town keeps,
+//! so theirs is not. The host's request turns keep all of it one at a
+//! time, `between` included. The feed carries the server's own facts and a
+//! log of what each request ran, for a demo whose subject is the server.
 
 const std = @import("std");
 const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
-const vendor = @import("uo_api.zig").vendor;
-const town = @import("uo_api.zig").town;
 const watch = @import("uo_watch_api.zig").api;
 
 pub const prefix = "/uo";
 
-/// Each proof's Codex heap region: the vendor proof uses about 75 MB, the
-/// town proof about 24 MB, the kept town about 18 MB.
+/// The Codex heap's region: the kept town uses about 18 MB, its players'
+/// joins, words and purchases a little more each.
 const heap_region: usize = 128 * 1024 * 1024;
 
 /// The town's clock: a tick a quarter second, from six in the morning, at
@@ -41,8 +38,24 @@ const heap_region: usize = 128 * 1024 * 1024;
 /// time never jumps or goes back.
 const tick_ns: i96 = 250 * std.time.ns_per_ms;
 const game_start: i64 = 6 * 3600;
-const speeds = [_]i64{ 60, 120, 600, 1200 };
-var speed: i64 = 120;
+const speeds = [_]i64{ 0, 60, 120, 600, 1200 };
+var speed: i64 = 0;
+
+/// Where the server runs, as the demo says it.
+const host_kind = if (@import("builtin").os.tag == .freestanding) "bare metal (the unikernel)" else "Linux";
+var ticks: u64 = 0;
+var last_tick_us: i64 = 0;
+
+/// What each request ran since the last feed, JSON objects joined by
+/// commas: the next feed carries them as "log".
+var log: std.ArrayList(u8) = .empty;
+
+fn note(comptime fmt: []const u8, args: anytype) void {
+    var buf: [400]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, fmt, args) catch buf[0..];
+    if (log.items.len > 0) log.append(gpa, ',') catch return;
+    log.print(gpa, "{{\"text\":{f}}}", .{std.json.fmt(text, .{})}) catch return;
+}
 
 const events_key = "uo-town";
 
@@ -73,42 +86,46 @@ const seat_idle_ns: i96 = 120 * std.time.ns_per_s;
 var spoken: std.ArrayList(u8) = .empty;
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
-    _ = io;
     _ = roots;
     gpa = base;
-    inline for (.{ vendor, town, watch }) |lib| {
-        const region = try base.alignedAlloc(u8, .fromByteUnits(4096), heap_region);
-        @memset(region, 0);
-        lib.heapGive(region);
-    }
+    const region = try base.alignedAlloc(u8, .fromByteUnits(4096), heap_region);
+    @memset(region, 0);
+    watch.heapGive(region);
     kept = watch.new();
     problem = try base.dupe(u8, watch.problem(kept));
     if (problem.len > 0) return .{ .problem = problem };
     const mark = watch.heapMark();
     map_json = try base.dupe(u8, watch.mapJson(kept));
     watch.heapBack(mark);
-    try advance(game_start);
+    try advance(io, game_start);
     return .{ .problem = "" };
 }
 
-/// The town brought to `seconds`, and its JSON kept.
-fn advance(seconds: i64) !void {
-    if (!watch.tick(kept, seconds)) return error.TownStepFailed;
-    game_seconds = seconds;
+/// The town brought to `seconds` (unchanged when it is there), and the feed
+/// made again: the speed every watcher shares, the server's facts, what the
+/// townsfolk said to the players, what players said, and what each request
+/// ran.
+fn advance(io: Io, seconds: i64) !void {
+    if (seconds > game_seconds) {
+        const t0 = Io.Clock.now(.awake, io).nanoseconds;
+        if (!watch.tick(kept, seconds)) return error.TownStepFailed;
+        last_tick_us = @intCast(@divFloor(Io.Clock.now(.awake, io).nanoseconds - t0, std.time.ns_per_us));
+        ticks += 1;
+        game_seconds = seconds;
+    }
     const mark = watch.heapMark();
     defer watch.heapBack(mark);
     now_json.clearRetainingCapacity();
-    // The town's JSON, with the speed every watcher shares and what the
-    // townsfolk said to the players this tick.
-    const said = watch.greet(kept, seconds);
-    const town_json = watch.json(kept, seconds);
-    try now_json.print(gpa, "{{\"speed\":{d},\"said\":{s},\"spoken\":[{s}],", .{ speed, said, spoken.items });
+    const heap = watch.heapUsed();
+    const said = watch.greet(kept, game_seconds);
+    const town_json = watch.json(kept, game_seconds);
+    try now_json.print(gpa, "{{\"speed\":{d},\"server\":{{\"host\":\"{s}\",\"ticks\":{d},\"tick_us\":{d},\"heap\":{d}}},\"said\":{s},\"spoken\":[{s}],\"log\":[{s}],", .{ speed, host_kind, ticks, last_tick_us, heap, said, spoken.items, log.items });
     spoken.clearRetainingCapacity();
+    log.clearRetainingCapacity();
     try now_json.appendSlice(gpa, town_json[1..]);
 }
 
 pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.Wake {
-    _ = io;
     if (problem.len > 0) return .idle;
     const t0 = base_ns orelse blk: {
         base_ns = now.awake_ns;
@@ -119,10 +136,13 @@ pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.W
     for (&seats, 0..) |*seat, i| if (seat.held and now.awake_ns - seat.last_ns > seat_idle_ns) {
         seat.held = false;
         _ = watch.leave(kept, @intCast(i));
+        note("{s} left (quiet two minutes): tw-leave frees seat {d}, the body stays where it stands", .{ seat.name[0..seat.name_len], i });
     };
     const target: i64 = base_seconds + @as(i64, @intCast(@divFloor((now.awake_ns - t0) * speed, std.time.ns_per_s)));
-    if (target > game_seconds) {
-        advance(target) catch |e| std.debug.panic("uo town: {s} at game second {d}", .{ @errorName(e), target });
+    // A tick when the clock has moved; a feed too when only a request has
+    // (paused, a join or words are still news to every watcher).
+    if (target > game_seconds or log.items.len > 0 or spoken.items.len > 0) {
+        advance(io, target) catch |e| std.debug.panic("uo town: {s} at game second {d}", .{ @errorName(e), target });
         bus.publish(events_key, now_json.items);
     }
     next_tick_ns = webbox.site.periodAfter(next_tick_ns, tick_ns, now.awake_ns);
@@ -132,14 +152,6 @@ pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.W
 pub fn bodyLimit(path: []const u8) u64 {
     _ = path;
     return 0;
-}
-
-var printed: std.ArrayList(u8) = .empty;
-var printed_alloc: std.mem.Allocator = undefined;
-
-fn sink(line: []const u8) void {
-    printed.appendSlice(printed_alloc, line) catch @panic("uo: out of memory for the proof's lines");
-    printed.append(printed_alloc, '\n') catch @panic("uo: out of memory for the proof's lines");
 }
 
 const json_ct: std.http.Header = .{ .name = "content-type", .value = "application/json; charset=utf-8" };
@@ -166,6 +178,7 @@ fn join(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: 
     seat.last_ns = Io.Clock.now(.awake, io).nanoseconds;
     @memcpy(seat.name[0..name.len], name);
     seat.name_len = name.len;
+    note("join {s}: tw-join gives seat {d} a body at the town's entrance, bound to a character slot, with a pack and a purse", .{ name, slot });
     return req.respond(try std.fmt.allocPrint(alloc, "{{\"token\":\"{s}\",\"seat\":{d}}}", .{ &seat.token, slot }), .{ .extra_headers = &.{json_ct} });
 }
 
@@ -184,6 +197,15 @@ fn seatOf(io: Io, whole: []const u8) ?usize {
 /// PIT's rate, which a keeper's quote lasts a minute of.
 fn ticksNow(io: Io) i64 {
     return @intCast(@divFloor(Io.Clock.now(.awake, io).nanoseconds, 10 * std.time.ns_per_ms));
+}
+
+/// The handler's note in a TownWatch answer, or `none` when it has none.
+fn noteOf(answer: []const u8, none: []const u8) []const u8 {
+    const key = "\"note\":\"";
+    const at = std.mem.indexOf(u8, answer, key) orelse return none;
+    const rest = answer[at + key.len ..];
+    const end = std.mem.indexOfScalar(u8, rest, '"') orelse return none;
+    return if (end == 0) none else rest[0..end];
 }
 
 /// `answer` (TownWatch's `{heard, ...}`) in "spoken" for every watcher,
@@ -214,6 +236,7 @@ fn say(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: [
     if (!fine) return req.respond("words are 1 to 120 printable ASCII characters\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
     const answer = try alloc.dupe(u8, try watch.say(kept, @intCast(slot), words, ticksNow(io)));
     try tellAll(slot, words, answer);
+    note("say \"{s}\": tw-say hands the client's speech packet to ns-handler-at; {s}", .{ words, noteOf(answer, "nobody near answers") });
     return req.respond(answer, .{ .extra_headers = &.{json_ct} });
 }
 
@@ -235,6 +258,7 @@ fn buy(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: [
     const n = std.fmt.parseInt(i64, http.queryValue(whole, "n") orelse "1", 10) catch 0;
     const answer = try alloc.dupe(u8, watch.buy(kept, @intCast(slot), i, n, ticksNow(io)));
     try tellAll(slot, null, answer);
+    note("buy offer {d}: tw-buy sends the client's cart packet to gv-handle-at; {s}", .{ i, noteOf(answer, "no quote stands") });
     return req.respond(answer, .{ .extra_headers = &.{json_ct} });
 }
 
@@ -250,6 +274,7 @@ fn errand(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
         if (std.mem.eql(u8, x.word, do)) break x;
     } else return req.respond("an errand is home, work or tavern\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
     const answer = watch.errand(kept, who, e.action, 0);
+    note("errand, resident {d} to {s}: tw-errand calls tl-direct, which answers {d} ({s})", .{ who, e.word, answer, if (answer >= 0) "sent for a game hour" else "refused" });
     if (answer < 0) return req.respond("{\"sent\":false}", .{ .extra_headers = &.{json_ct} });
     // Every watcher hears the player send the resident (by name, from the feed).
     if (std.mem.indexOf(u8, now_json.items, "\"people\":[")) |at| {
@@ -274,17 +299,19 @@ fn go(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
     const x = std.fmt.parseInt(i64, http.queryValue(whole, "x") orelse "", 10) catch -1;
     const y = std.fmt.parseInt(i64, http.queryValue(whole, "y") orelse "", 10) catch -1;
     if (!watch.goal(kept, @intCast(slot), x, y)) return req.respond("not a place on the map\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+    note("go to ({d}, {d}): tw-goal; each tick tw-tick steps the body by rte-toward, the townsfolk's own router", .{ x, y });
     return req.respond("", .{ .status = .no_content });
 }
 
 /// A new speed from now on: the clock started again from the town's time.
 fn setSpeed(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
     if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
-    const x = std.fmt.parseInt(i64, http.queryValue(whole, "x") orelse "", 10) catch 0;
+    const x = std.fmt.parseInt(i64, http.queryValue(whole, "x") orelse "", 10) catch -1;
     if (std.mem.indexOfScalar(i64, &speeds, x) == null)
-        return req.respond("speed is 60, 120, 600 or 1200 game seconds a real one\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+        return req.respond("speed is 0, 60, 120, 600 or 1200 game seconds a real one\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
     base_seconds = game_seconds;
     base_ns = Io.Clock.now(.awake, io).nanoseconds;
+    if (x != speed) note("{s}: the town's clock runs at {d} game seconds a real one; each 250 ms between requests, tw-tick advances it", .{ if (x == 0) "paused" else if (speed == 0) "started" else "pace", x });
     speed = x;
     return req.respond("", .{ .status = .no_content });
 }
@@ -308,14 +335,5 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
         const body = if (std.mem.eql(u8, path, "/town/map")) map_json else now_json.items;
         return req.respond(body, .{ .extra_headers = &.{json_ct} });
     }
-    const run = if (std.mem.eql(u8, path, "/vendor-proof"))
-        &vendor.runProof
-    else if (std.mem.eql(u8, path, "/town-proof"))
-        &town.runProof
-    else
-        return http.notFound(req);
-    printed = .empty;
-    printed_alloc = alloc;
-    run(sink);
-    return req.respond(printed.items, .{ .extra_headers = &.{http.plain_ct} });
+    return http.notFound(req);
 }

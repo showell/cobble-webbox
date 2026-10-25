@@ -3,15 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Britain, Watched</title>
+<title>Britain on Webbox</title>
 <style>
   :root { --bg: #1d2318; --ink: #efe6cf; --dim: #a99f86; --panel: #2a3123; --line: #4a523d; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 Georgia, serif; }
-  header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; font-weight: normal; letter-spacing: 0.5px; }
+  .sub { color: var(--dim); font-size: 14px; max-width: 760px; margin-top: 2px; }
+  .sub b { color: var(--ink); font-weight: normal; }
+  #stage { position: relative; }
+  #paused { position: sticky; top: 0; z-index: 2; margin-bottom: -44px; height: 44px; display: flex; align-items: center; justify-content: center;
+    background: rgba(20,24,16,0.88); color: #ffe9a0; font-size: 15px; border-bottom: 1px solid var(--line); }
+  #paused[hidden] { display: none; }
+  .facts { font-size: 13px; color: var(--dim); }
+  .facts b { color: var(--ink); font-weight: normal; font-variant-numeric: tabular-nums; }
+  button.big { font: inherit; font-size: 16px; color: #1d2318; background: #e8c86a; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; margin: 8px 0 4px; }
+  button.big[hidden] { display: none; }
+  #steps ol { margin: 0; padding-left: 22px; }
+  #steps li { margin: 0 0 10px; color: var(--dim); }
+  #steps li b { color: var(--ink); font-weight: normal; }
+  #steps li.now b { color: #ffe9a0; }
+  #steps li.done { color: #6f7a5f; }
+  #steps li.done > b:first-child::after { content: " ✓"; color: #9fd98f; }
+  #steps code, #log code { font-size: 12px; color: #c9d9a8; }
+  #log { max-height: 220px; overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  #log li { padding: 3px 0; border-bottom: 1px dotted var(--line); color: var(--dim); }
   #clock { font-variant-numeric: tabular-nums; color: var(--dim); }
-  #speed { display: flex; gap: 4px; align-items: center; color: var(--dim); font-size: 13px; }
+  #speed { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: var(--dim); font-size: 13px; }
   #speed button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
   #speed button.on { background: #4a5a33; border-color: #8a9a63; }
   #live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #7a7; margin-right: 6px; }
@@ -42,19 +61,41 @@
 </head>
 <body>
 <header>
-  <h1>Britain, watched</h1>
-  <span id="speed">pace
-    <button data-x="60">slow</button><button data-x="120">normal</button><button data-x="600">fast</button><button data-x="1200">faster</button>
-  </span>
+  <div>
+    <h1>Britain, on webbox</h1>
+    <div class="sub">The town on the left is <b>Damian's Ultima Online server code</b> (Cobblestone's <code>apps/uoaix</code>,
+      written in Codex), compiled to Zig and running inside <b>webbox</b> on <b id="host">…</b>. Its townsfolk, shops, routes,
+      greetings and trade are all that code. This page only draws what the server sends, and sends what you do.</div>
+  </div>
   <span id="clock"><span id="live" class="off"></span><span id="time">connecting…</span></span>
 </header>
 <main>
-  <div id="stage"><canvas id="map"></canvas></div>
+  <div id="stage"><div id="paused">The server's town clock is stopped. Press ▶ Start the day.</div><canvas id="map"></canvas></div>
   <aside>
-    <div class="box"><h2>You</h2><div id="you">
-      <form id="join"><input id="name" maxlength="16" placeholder="your name (letters)" autocomplete="off"><button>Join</button></form>
-    </div></div>
+    <div class="box"><h2>The server</h2>
+      <div class="facts">on <b id="s-host">…</b> · ticks <b id="s-ticks">0</b> · last tick <b id="s-tick">–</b> · Codex heap <b id="s-heap">–</b></div>
+      <button id="start" class="big">▶ Start the day</button>
+      <div id="speed">pace
+        <button data-x="0">pause</button><button data-x="60">slow</button><button data-x="120">normal</button><button data-x="600">fast</button><button data-x="1200">faster</button>
+      </div>
+    </div>
+    <div class="box" id="steps"><h2>Try it</h2>
+      <ol>
+        <li id="step1"><b>Start the day.</b> The server ticks the town four times a second (<code>tw-tick</code>); Nell, Jorin and Mira
+          keep their schedules and the shops open at eight.</li>
+        <li id="step2"><b>Join the town.</b> The server makes you a body at the inn (<code>tw-join</code>).
+          <form id="join"><input id="name" maxlength="16" placeholder="your name (letters)" autocomplete="off"><button>Join</button></form></li>
+        <li id="step3"><b>Walk into a shop.</b> Tap open ground by a shop; the server walks your body there by the townsfolk's own
+          router (<code>rte-toward</code>), and its keeper greets you.</li>
+        <li id="step4"><b>Buy something.</b> In a shop, say “vendor buy” to see the keeper's prices, then press Buy
+          (<code>ns-handler-at</code>, <code>gv-handle-at</code>). Before eight, the keeper tells you the shop is shut.
+          <div id="you" class="hint">Join first.</div></li>
+        <li id="step5"><b>Send a resident on an errand.</b> Tap Nell, Jorin or Mira on the map, then a Send button: they leave their
+          schedule for a game hour (<code>tl-direct</code>).</li>
+      </ol>
+    </div>
     <div class="box"><h2>Following</h2><div id="card" class="hint">Tap a townsperson to follow them.</div></div>
+    <div class="box"><h2>Server log</h2><ul id="log"></ul></div>
     <div class="box"><h2>The town crier</h2><ul id="crier"></ul></div>
   </aside>
 </main>
@@ -86,6 +127,28 @@ const PLAYER_COLORS = ["#f0c419", "#e86a5c", "#5cc8e8", "#b58cf0", "#8ce87a"];
 const worn = new Map();   // tile -> footfall: the town's paths, worn in by walking
 const seen = {};          // name -> last activity, for the crier
 const shutSeen = {};      // trade -> whether its shop was shut, for the crier
+
+// The guide's steps: done as the page sees them happen.
+const done = new Set();
+function did(n) { done.add(n); markSteps(); }
+function markSteps() {
+  let now = 0;
+  for (let n = 1; n <= 5; n++) {
+    const li = document.getElementById("step" + n);
+    li.classList.toggle("done", done.has(n));
+    if (!done.has(n) && !now) now = n;
+    li.classList.toggle("now", n === now);
+  }
+}
+
+function logLine(text) {
+  const li = document.createElement("li");
+  li.innerHTML = `<span class="t">${hhmm(seconds).text}</span> `;
+  li.append(text);
+  const list = document.getElementById("log");
+  list.prepend(li);
+  while (list.children.length > 80) list.lastChild.remove();
+}
 
 function premisesOf(title) {
   const s = map.shops.find(s => s.title === title);
@@ -195,6 +258,21 @@ function take(snapshot) {
   if (closed.length > 3) crier(`${closed.length} of Britain's shops shut their doors.`);
   else for (const c of closed) crier(`${c} shuts its doors.`);
   for (const b of document.querySelectorAll("#speed button")) b.classList.toggle("on", Number(b.dataset.x) === snapshot.speed);
+  document.getElementById("paused").hidden = snapshot.speed !== 0;
+  document.getElementById("start").hidden = snapshot.speed !== 0;
+  if (snapshot.speed !== 0) did(1);
+  if (snapshot.server) {
+    const sv = snapshot.server;
+    document.getElementById("host").textContent = sv.host;
+    document.getElementById("s-host").textContent = sv.host;
+    document.getElementById("s-ticks").textContent = sv.ticks.toLocaleString();
+    document.getElementById("s-tick").textContent = !sv.ticks ? "–" : sv.tick_us < 1000 ? sv.tick_us + " µs" : (sv.tick_us / 1000).toFixed(1) + " ms";
+    document.getElementById("s-heap").textContent = (sv.heap / 1048576).toFixed(1) + " MB";
+  }
+  for (const entry of snapshot.log || []) logLine(entry.text);
+  // Step 3: this browser's body inside a shop's walls.
+  const mine = me && players.find(p => p.seat === me.seat);
+  if (mine && map.shops.some(s => mine.x >= s.x1 && mine.x <= s.x2 && mine.y >= s.y1 && mine.y <= s.y2)) did(3);
   // A path worn over a shop's label: the labels go back on top.
   if (wornSince) { paintShops(); wornSince = false; }
   const t = hhmm(seconds);
@@ -233,7 +311,7 @@ function showCard() {
       const r = await fetch(`errand?t=${me.token}&who=${who}&do=${b.dataset.do}`, { method: "POST" });
       if (r.status === 403) return forget();
       const answer = await r.json();
-      if (!answer.sent) crier(`${p.name} will not go.`);
+      if (!answer.sent) crier(`${p.name} will not go.`); else did(5);
     });
   }
   card.querySelector(".line").textContent = line;
@@ -338,11 +416,13 @@ function coins(c) {
 function showYou() {
   const you = document.getElementById("you");
   if (!me) return;
-  you.innerHTML = `<div>You are <b></b>. Tap open ground to walk there. In a shop, say “vendor buy”.</div>
-    <form id="sayform"><input id="words" maxlength="120" placeholder="say something" autocomplete="off"><button>Say</button></form>
+  you.classList.remove("hint");
+  const join = document.getElementById("join");
+  if (join) join.outerHTML = `<div>You are <b>${me.name.replace(/[^A-Za-z]/g, "")}</b> (seat ${me.seat + 1} of 5).</div>`;
+  did(2);
+  you.innerHTML = `<form id="sayform"><input id="words" maxlength="120" placeholder="say something" autocomplete="off"><button>Say</button></form>
     <div class="phrases"><button data-w="vendor buy">vendor buy</button><button data-w="hail">hail</button><button data-w="any news?">any news?</button></div>
     <div id="offers"></div><div class="note" id="note"></div>`;
-  you.querySelector("b").textContent = me.name;
   you.querySelector("#sayform").addEventListener("submit", e => { e.preventDefault(); const w = document.getElementById("words"); speak(w.value); w.value = ""; });
   for (const b of you.querySelectorAll(".phrases button")) b.addEventListener("click", () => speak(b.dataset.w));
 }
@@ -380,6 +460,7 @@ async function purchase(i) {
   const r = await fetch(`buy?t=${me.token}&i=${i}&n=1`, { method: "POST" });
   if (r.status === 403) return forget();
   const answer = await r.json(), note = document.getElementById("note");
+  if (answer.bought) did(4);
   note.textContent = answer.bought ? "Bought." : "Not bought: " + ((answer.note || "").replace(/^vendor refused: /, "") || "no quote stands; say vendor buy again.");
   showOffers();
 }
@@ -395,7 +476,7 @@ document.getElementById("join").addEventListener("submit", async e => {
   e.preventDefault();
   const name = document.getElementById("name").value.trim();
   const r = await fetch("join?name=" + encodeURIComponent(name), { method: "POST" });
-  if (!r.ok) { crier(r.status === 503 ? "The town is full: five players at most." : "A name is 1 to 16 letters."); return; }
+  if (!r.ok) { alert(r.status === 503 ? "The town is full: five players at most." : "A name is 1 to 16 letters."); return; }
   const seat = await r.json();
   me = { token: seat.token, seat: seat.seat, name };
   try { sessionStorage.setItem("uo-seat", JSON.stringify(me)); } catch (e) {}
@@ -406,6 +487,8 @@ showYou();
 
 for (const b of document.querySelectorAll("#speed button"))
   b.addEventListener("click", () => fetch("speed?x=" + b.dataset.x, { method: "POST" }));
+document.getElementById("start").addEventListener("click", () => fetch("speed?x=120", { method: "POST" }));
+markSteps();
 
 function listen() {
   const live = document.getElementById("live");
@@ -419,7 +502,7 @@ function listen() {
   fit();
   window.addEventListener("resize", fit);
   take(await (await fetch("now")).json());
-  crier("The town wakes. Watch the townsfolk go about their day.");
+  crier("Six in the morning in Britain. The town waits for the server's clock.");
   listen();
   draw();
   // Open on the townsfolk: the inn is mid-map, below the first screenful.
