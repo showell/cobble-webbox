@@ -7,8 +7,10 @@
 <style>
   :root { --bg: #1d2318; --ink: #efe6cf; --dim: #a99f86; --panel: #2a3123; --line: #4a523d; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 Georgia, serif; }
-  header { display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 Georgia, serif; height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 6px 0; flex: none; }
+  #left { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; max-height: 100%; }
+  #clock { float: right; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); }
   h1 { font-size: 20px; margin: 0; font-weight: normal; letter-spacing: 0.5px; }
   .sub { color: var(--dim); font-size: 14px; max-width: 760px; margin-top: 2px; }
   .sub b { color: var(--ink); font-weight: normal; }
@@ -21,13 +23,18 @@
   button.big { font: inherit; font-size: 16px; color: #1d2318; background: #e8c86a; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; margin: 8px 0 4px; }
   button.big[hidden] { display: none; }
   #steps ol { margin: 0; padding-left: 22px; }
-  #steps li { margin: 0 0 10px; color: var(--dim); }
+  #steps li { margin: 0 0 6px; color: var(--dim); }
+  #steps li > b:first-child { cursor: pointer; }
+  /* One step at a time: the one to do now (or one clicked open) in full, the rest their titles. */
+  #steps li:not(.now):not(.open) .more { display: none; }
+  #shops { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  #shops button { font: inherit; font-size: 13px; color: var(--ink); background: #4a5a33; border: 1px solid #8a9a63; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
   #steps li b { color: var(--ink); font-weight: normal; }
   #steps li.now b { color: #ffe9a0; }
   #steps li.done { color: #6f7a5f; }
   #steps li.done > b:first-child::after { content: " ✓"; color: #9fd98f; }
   #steps code, #log code { font-size: 12px; color: #c9d9a8; }
-  #log { max-height: 220px; overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  #log { max-height: 160px; overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: 13px; }
   #log li { padding: 3px 0; border-bottom: 1px dotted var(--line); color: var(--dim); }
   #clock { font-variant-numeric: tabular-nums; color: var(--dim); }
   #speed { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: var(--dim); font-size: 13px; }
@@ -35,13 +42,14 @@
   #speed button.on { background: #4a5a33; border-color: #8a9a63; }
   #live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #7a7; margin-right: 6px; }
   #live.off { background: #c55; }
-  main { display: flex; gap: 12px; padding: 0 16px 16px; flex-wrap: wrap; }
-  #stage { flex: 1 1 360px; min-width: 0; max-height: calc(100vh - 70px); overflow-y: auto; border-radius: 6px; }
+  main { display: flex; gap: 12px; padding: 6px 16px 10px; flex: 1; min-height: 0; }
+  @media (max-width: 760px) { body { height: auto; } main { flex-wrap: wrap; } #left, #stage, aside { max-height: none; } }
+  #stage { flex: 1; min-height: 0; overflow-y: auto; border-radius: 6px; }
   canvas { display: block; touch-action: manipulation; cursor: pointer; }
-  aside { flex: 0 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  aside { flex: 0 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 10px; max-height: 100%; overflow-y: auto; padding-right: 2px; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; flex: none; }
   .box h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 0 0 6px; font-weight: normal; }
-  #crier { max-height: 340px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  #crier { max-height: 200px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
   #crier li { padding: 3px 0; border-bottom: 1px dotted var(--line); }
   #crier .t { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 6px; }
   #card { min-height: 3em; }
@@ -60,19 +68,19 @@
 </style>
 </head>
 <body>
+<main>
+<div id="left">
 <header>
   <div>
     <h1>Britain, on webbox</h1>
     <div class="sub">The town on the left is <b>Damian's Ultima Online server code</b> (Cobblestone's <code>apps/uoaix</code>,
-      written in Codex), compiled to Zig and running inside <b>webbox</b> on <b id="host">…</b>. Its townsfolk, shops, routes,
-      greetings and trade are all that code. This page only draws what the server sends, and sends what you do.</div>
+      written in Codex), compiled to Zig and running inside <b>webbox</b> on <b id="host">…</b>.</div>
   </div>
-  <span id="clock"><span id="live" class="off"></span><span id="time">connecting…</span></span>
 </header>
-<main>
   <div id="stage"><div id="paused">The server's town clock is stopped. Press ▶ Start the day.</div><canvas id="map"></canvas></div>
+</div>
   <aside>
-    <div class="box"><h2>The server</h2>
+    <div class="box"><h2>The server <span id="clock"><span id="live" class="off"></span><span id="time">connecting…</span></span></h2>
       <div class="facts">on <b id="s-host">…</b> · ticks <b id="s-ticks">0</b> · last tick <b id="s-tick">–</b> · Codex heap <b id="s-heap">–</b></div>
       <button id="start" class="big">▶ Start the day</button>
       <div id="speed">pace
@@ -81,17 +89,18 @@
     </div>
     <div class="box" id="steps"><h2>Try it</h2>
       <ol>
-        <li id="step1"><b>Start the day.</b> The server ticks the town four times a second (<code>tw-tick</code>); Nell, Jorin and Mira
-          keep their schedules and the shops open at eight.</li>
-        <li id="step2"><b>Join the town.</b> The server makes you a body at the inn (<code>tw-join</code>).
-          <form id="join"><input id="name" maxlength="16" placeholder="your name (letters)" autocomplete="off"><button>Join</button></form></li>
-        <li id="step3"><b>Walk into a shop.</b> Tap open ground by a shop; the server walks your body there by the townsfolk's own
-          router (<code>rte-toward</code>), and its keeper greets you.</li>
-        <li id="step4"><b>Buy something.</b> In a shop, say “vendor buy” to see the keeper's prices, then press Buy
-          (<code>ns-handler-at</code>, <code>gv-handle-at</code>). Before eight, the keeper tells you the shop is shut.
-          <div id="you" class="hint">Join first.</div></li>
-        <li id="step5"><b>Send a resident on an errand.</b> Tap Nell, Jorin or Mira on the map, then a Send button: they leave their
-          schedule for a game hour (<code>tl-direct</code>).</li>
+        <li id="step1"><b>Start the day.</b><span class="more"> The server ticks the town four times a second
+          (<code>tw-tick</code>); Nell, Jorin and Mira keep their schedules and the shops open at eight.</span></li>
+        <li id="step2"><b>Join the town.</b><span class="more"> The server makes you a body at the inn (<code>tw-join</code>).
+          <form id="join"><input id="name" maxlength="16" placeholder="your name (letters)" autocomplete="off"><button>Join</button></form></span></li>
+        <li id="step3"><b>Walk into a shop.</b><span class="more"> Press an open shop (or tap the map); the server walks your body there
+          by the townsfolk's own router (<code>rte-toward</code>), and its keeper greets you.
+          <span id="shops" class="hint"></span></span></li>
+        <li id="step4"><b>Buy something.</b><span class="more"> In the shop, say “vendor buy” for the keeper's prices, then press Buy
+          (<code>ns-handler-at</code>, <code>gv-handle-at</code>).
+          <span id="you" class="hint">Join first.</span></span></li>
+        <li id="step5"><b>Send a resident on an errand.</b><span class="more"> Tap Nell, Jorin or Mira on the map, then a Send
+          button: they leave their schedule for a game hour (<code>tl-direct</code>).</span></li>
       </ol>
     </div>
     <div class="box"><h2>Following</h2><div id="card" class="hint">Tap a townsperson to follow them.</div></div>
@@ -138,6 +147,33 @@ function markSteps() {
     li.classList.toggle("done", done.has(n));
     if (!done.has(n) && !now) now = n;
     li.classList.toggle("now", n === now);
+  }
+}
+
+for (let n = 1; n <= 5; n++)
+  document.querySelector(`#step${n} > b`).addEventListener("click", e => e.target.parentElement.classList.toggle("open"));
+
+// Step 3's buttons: the shops open now, each walking this browser's body to
+// three tiles before its keeper (within the four a keeper trades across).
+let shopsShown = "";
+function showShops() {
+  const box = document.getElementById("shops");
+  const open = keepers.filter(k => k.shut === 0 && k.x >= 0);
+  const key = (me ? "me" : "") + open.map(k => k.title).join("|") + (open.length ? "" : hhmm(seconds).hour < 8 ? "early" : "late");
+  if (key === shopsShown) return;
+  shopsShown = key;
+  box.innerHTML = "";
+  if (!open.length) {
+    box.textContent = hhmm(seconds).hour < 8 ? "No shop is open yet: they open at 8:00. Set the pace to fast to get there sooner."
+      : "Every shop is shut for the night. Set the pace to faster until morning.";
+    return;
+  }
+  if (!me) { box.textContent = `Open now: ${open.map(k => k.title).join(", ")}. Join first to walk to one.`; return; }
+  for (const k of open) {
+    const b = document.createElement("button");
+    b.textContent = `${TRADES[k.title] || ""} ${k.title}`;
+    b.addEventListener("click", () => fetch(`go?t=${me.token}&x=${k.x - 3}&y=${k.y}`, { method: "POST" }).then(r => { if (r.status === 403) forget(); }));
+    box.append(b);
   }
 }
 
@@ -270,6 +306,7 @@ function take(snapshot) {
     document.getElementById("s-heap").textContent = (sv.heap / 1048576).toFixed(1) + " MB";
   }
   for (const entry of snapshot.log || []) logLine(entry.text);
+  showShops();
   // Step 3: this browser's body inside a shop's walls.
   const mine = me && players.find(p => p.seat === me.seat);
   if (mine && map.shops.some(s => mine.x >= s.x1 && mine.x <= s.x2 && mine.y >= s.y1 && mine.y <= s.y2)) did(3);
