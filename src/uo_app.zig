@@ -13,6 +13,7 @@
 //!   GET  /uo/town/offers?t=TOKEN      the prices a keeper quoted it
 //!   POST /uo/town/buy?t=TOKEN&i=&n=   buy n of offer i
 //!   POST /uo/town/errand?t=TOKEN&who=1..3&do=home|work|tavern   a resident sent there for a game hour
+//!   POST /uo/town/reset      start over: a new town at six, paused, every seat free
 //!
 //! The town lives below its heap's mark; each tick's scratch is given back.
 //! A player's join, words, purchase and errand change what the town keeps,
@@ -44,6 +45,12 @@ var speed: i64 = 0;
 /// Where the server runs, as the demo says it.
 const host_kind = if (@import("builtin").os.tag == .freestanding) "bare metal (the unikernel)" else "Linux";
 var ticks: u64 = 0;
+/// Which town this is: a start over makes the next, and every page that
+/// sees it change loads the new one.
+var epoch: u64 = 1;
+/// The Codex heap's region, zeroed again for a new town: the runtime reads
+/// fresh memory as zero, as bare metal's boot leaves it.
+var region: []align(4096) u8 = &.{};
 var last_tick_us: i64 = 0;
 
 /// What each request ran since the last feed, JSON objects joined by
@@ -91,21 +98,52 @@ var spoken: std.ArrayList(u8) = .empty;
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     _ = roots;
     gpa = base;
-    const region = try base.alignedAlloc(u8, .fromByteUnits(4096), heap_region);
+    region = try base.alignedAlloc(u8, .fromByteUnits(4096), heap_region);
     @memset(region, 0);
     watch.heapGive(region);
-    kept = watch.new();
-    set_up = true;
-    problem = try base.dupe(u8, watch.problem(kept));
+    try build(io);
     if (problem.len > 0) return .{ .problem = problem };
+    set_up = true;
     const mark = watch.heapMark();
     map_json = try base.dupe(u8, watch.mapJson(kept));
     watch.heapBack(mark);
-    // The first tick, at six: the shops shut or open by their hours before
-    // anyone sees the town.
-    if (!watch.tick(kept, game_start)) return .{ .problem = "the town's first tick failed" };
-    try advance(io, game_start);
     return .{ .problem = "" };
+}
+
+/// A town, new: built on a fresh Codex heap, ticked once at six (the shops
+/// shut or open by their hours before anyone sees it), paused, its seats
+/// free, its feed made.
+fn build(io: Io) !void {
+    kept = watch.new();
+    problem = try gpa.dupe(u8, watch.problem(kept));
+    if (problem.len > 0) return;
+    if (!watch.tick(kept, game_start)) {
+        problem = "the town's first tick failed";
+        return;
+    }
+    game_seconds = game_start;
+    base_seconds = game_start;
+    base_ns = null;
+    speed = 0;
+    ticks = 0;
+    last_tick_us = 0;
+    seats = @splat(.{});
+    spoken.clearRetainingCapacity();
+    try advance(io, game_start);
+}
+
+/// Start over: the town given back with its whole heap and a new one built.
+/// Every page sees the epoch change and loads the new town.
+fn reset(req: *std.http.Server.Request, io: Io) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    watch.heapReset();
+    @memset(region, 0);
+    epoch += 1;
+    log.clearRetainingCapacity();
+    try build(io);
+    if (problem.len > 0) return req.respond(problem, .{ .status = .service_unavailable, .extra_headers = &.{http.plain_ct} });
+    note("start over: the Codex heap given back whole and tw-new builds a new town, paused at six; every seat free", .{});
+    return req.respond("", .{ .status = .no_content });
 }
 
 /// The town brought to `seconds` (unchanged when it is there), and the feed
@@ -126,7 +164,7 @@ fn advance(io: Io, seconds: i64) !void {
     const heap = watch.heapUsed();
     const said = watch.greet(kept, game_seconds);
     const town_json = watch.json(kept, game_seconds);
-    try now_json.print(gpa, "{{\"speed\":{d},\"server\":{{\"host\":\"{s}\",\"ticks\":{d},\"tick_us\":{d},\"heap\":{d}}},\"said\":{s},\"spoken\":[{s}],\"log\":[{s}],", .{ speed, host_kind, ticks, last_tick_us, heap, said, spoken.items, log.items });
+    try now_json.print(gpa, "{{\"epoch\":{d},\"speed\":{d},\"server\":{{\"host\":\"{s}\",\"ticks\":{d},\"tick_us\":{d},\"heap\":{d}}},\"said\":{s},\"spoken\":[{s}],\"log\":[{s}],", .{ epoch, speed, host_kind, ticks, last_tick_us, heap, said, spoken.items, log.items });
     spoken.clearRetainingCapacity();
     log.clearRetainingCapacity();
     try now_json.appendSlice(gpa, town_json[1..]);
@@ -335,6 +373,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     if (std.mem.eql(u8, path, "/town/offers")) return offers(req, io, alloc, whole);
     if (std.mem.eql(u8, path, "/town/buy")) return buy(req, io, alloc, whole);
     if (std.mem.eql(u8, path, "/town/errand")) return errand(req, io, whole);
+    if (std.mem.eql(u8, path, "/town/reset")) return reset(req, io);
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/town/")) return req.respond(@embedFile("uo_town_page"), .{ .extra_headers = &.{http.html_ct} });
     if (std.mem.eql(u8, path, "/town/map") or std.mem.eql(u8, path, "/town/now")) {

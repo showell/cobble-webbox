@@ -22,6 +22,7 @@
   .facts b { color: var(--ink); font-weight: normal; font-variant-numeric: tabular-nums; }
   button.big { font: inherit; font-size: 16px; color: #1d2318; background: #e8c86a; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; margin: 8px 0 4px; }
   button.big[hidden] { display: none; }
+  #over { font: inherit; font-size: 13px; color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; float: right; margin-top: 4px; }
   #steps ol { margin: 0; padding-left: 22px; }
   #steps li { margin: 0 0 6px; color: var(--dim); }
   #steps li > b:first-child { cursor: pointer; }
@@ -83,6 +84,7 @@
     <div class="box"><h2>The server <span id="clock"><span id="live" class="off"></span><span id="time">connecting…</span></span></h2>
       <div class="facts">on <b id="s-host">…</b> · ticks <b id="s-ticks">0</b> · last tick <b id="s-tick">–</b> · Codex heap <b id="s-heap">–</b></div>
       <button id="start" class="big">▶ Start the day</button>
+      <button id="over" title="A new town at six, paused, every seat free, for everyone watching">↺ Start over</button>
       <div id="speed">pace
         <button data-x="0">pause</button><button data-x="60">slow</button><button data-x="120">normal</button><button data-x="600">fast</button><button data-x="1200">faster</button>
       </div>
@@ -94,7 +96,8 @@
         <li id="step2"><b>Join the town.</b><span class="more"> The server makes you a body at the inn (<code>tw-join</code>).
           <form id="join"><input id="name" maxlength="16" placeholder="your name (letters)" autocomplete="off"><button>Join</button></form></span></li>
         <li id="step3"><b>Walk into a shop.</b><span class="more"> Press an open shop (or tap the map); the server walks your body there
-          by the townsfolk's own router (<code>rte-toward</code>), and its keeper greets you.
+          by the townsfolk's own router (<code>rte-toward</code>), and its keeper greets you. An open shop is lit, rimmed in gold;
+          a shut one is dark.
           <span id="shops" class="hint"></span></span></li>
         <li id="step4"><b>Buy something.</b><span class="more"> In the shop, say “vendor buy” for the keeper's prices, then press Buy
           (<code>ns-handler-at</code>, <code>gv-handle-at</code>).
@@ -217,16 +220,18 @@ function groundTile(x, y) {   // map-relative tile
   gctx.fillRect(x * T, y * T, T + 1, T + 1);
 }
 
-// Each shop a roof with its trade on it, small, inside its own walls
-// where it fits; the full name is on the card when someone stands by it.
+// Each shop a roof with its trade on it, small, inside its own walls where
+// it fits: lit and rimmed in gold while its keeper trades, dark while it is
+// shut. The full name is on the card when someone stands by it.
 function paintShops() {
   const d = devicePixelRatio, T = tile * d;
   gctx.textAlign = "center"; gctx.textBaseline = "middle";
   for (const s of map.shops) {
+    const keeper = keepers.find(k => k.title === s.title), open = keeper && keeper.shut === 0;
     const x = (s.x1 - map.x) * T, y = (s.y1 - map.y) * T, w = (s.x2 - s.x1 + 1) * T, h = (s.y2 - s.y1 + 1) * T;
-    gctx.fillStyle = "#a0563b"; gctx.fillRect(x, y, w, h);
-    gctx.strokeStyle = "#4a2618"; gctx.lineWidth = d * 2; gctx.strokeRect(x, y, w, h);
-    gctx.fillStyle = "#f6e7c8";
+    gctx.fillStyle = open ? "#c0663a" : "#4a4440"; gctx.fillRect(x, y, w, h);
+    gctx.strokeStyle = open ? "#ffd75e" : "#2a2622"; gctx.lineWidth = d * (open ? 3 : 2); gctx.strokeRect(x, y, w, h);
+    gctx.fillStyle = open ? "#fff3d6" : "#8f877e";
     for (const px of [11, 9]) {   // the trade's name where it fits, else none
       gctx.font = `${px * d}px Georgia`;
       if (gctx.measureText(s.title).width <= w - 4 * d && px * d <= h) { gctx.fillText(s.title, x + w / 2, y + h / 2); break; }
@@ -244,6 +249,10 @@ function paintPlaces() {
     const x = (p.x1 - map.x) * T, y = (p.y1 - map.y) * T, w = (p.x2 - p.x1 + 1) * T, h = (p.y2 - p.y1 + 1) * T;
     gctx.fillStyle = "#7d6a42"; gctx.fillRect(x, y, w, h);
     gctx.strokeStyle = "#c4a060"; gctx.lineWidth = d * 1.5; gctx.setLineDash([4 * d, 3 * d]); gctx.strokeRect(x, y, w, h); gctx.setLineDash([]);
+    // The label's ground painted again first, or each repaint thickens it.
+    for (let ty = p.y2 + 1; ty <= p.y2 + 3; ty++)
+      for (let tx = p.x1 - 10; tx <= p.x2 + 10; tx++)
+        if (tx >= map.x && ty >= map.y && tx < map.x + map.width && ty < map.y + map.height) groundTile(tx - map.x, ty - map.y);
     gctx.font = `${11 * d}px Georgia`; gctx.fillStyle = "#ffe9a0";
     gctx.fillText(p.title === "Tavern" ? "🍺 " + p.premises + " (tavern)" : "🛏️ " + p.premises + " (lodging)", x + w / 2, y + h + 13 * d);
   }
@@ -269,7 +278,16 @@ function crier(text) {
   while (list.children.length > 60) list.lastChild.remove();
 }
 
+// The town this page shows: a start over makes a new one, and the page loads it.
+let epoch = null, shopsLit = false;
+
 function take(snapshot) {
+  if (epoch !== null && snapshot.epoch !== epoch) {
+    try { sessionStorage.removeItem("uo-seat"); } catch (e) {}
+    location.reload();
+    return;
+  }
+  epoch = snapshot.epoch;
   const now = performance.now();
   prev = {};
   for (const p of people) prev[p.name] = { x: p.drawX ?? p.x, y: p.drawY ?? p.y };
@@ -304,6 +322,8 @@ function take(snapshot) {
     shutSeen[k.title] = shut;
   }
   // The morning's openings come together: one line for a crowd of them.
+  // The shops painted again, lit or dark: on the first snapshot, and when one opens or shuts.
+  if (opened.length || closed.length || !shopsLit) { wornSince = true; shopsLit = true; }
   if (opened.length > 3) crier(`${opened.length} of Britain's shops open for trade.`);
   else for (const o of opened) crier(`${o} opens for trade.`);
   if (closed.length > 3) crier(`${closed.length} of Britain's shops shut their doors.`);
@@ -556,6 +576,9 @@ showYou();
 for (const b of document.querySelectorAll("#speed button"))
   b.addEventListener("click", () => fetch("speed?x=" + b.dataset.x, { method: "POST" }));
 document.getElementById("start").addEventListener("click", () => fetch("speed?x=120", { method: "POST" }));
+document.getElementById("over").addEventListener("click", () => {
+  if (confirm("Start over? The server builds a new town at six, paused, and every player's seat is freed.")) fetch("reset", { method: "POST" });
+});
 markSteps();
 
 function listen() {

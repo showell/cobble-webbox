@@ -213,6 +213,39 @@ test "a player sends Nell to the tavern: she goes, and keeps her schedule again 
     try std.testing.expect(t.goal_sent and t.left_oven and t.back_at_work and t.valid);
 }
 
+/// A start over as the host makes one: a town played (a player joined, half
+/// a day ticked), its heap given back and zeroed, a town built again. The
+/// new town must be the first one, byte for byte.
+const Again = struct { first: []const u8, again: []const u8 };
+
+fn startOver() Again {
+    const fresh = watch.new();
+    if (!watch.tick(fresh, 6 * 3600)) @panic("uo watch: the first tick failed");
+    var mark = watch.heapMark();
+    const first = std.testing.allocator.dupe(u8, watch.json(fresh, 6 * 3600)) catch @panic("oom");
+    watch.heapBack(mark);
+    _ = watch.join(fresh, 0, "Ann") catch -1;
+    _ = watch.goal(fresh, 0, 1461, 1672);
+    var s: i64 = 6 * 3600;
+    while (s <= 18 * 3600) : (s += 30) _ = watch.tick(fresh, s);
+    watch.heapReset();
+    @memset(watch_region.?, 0);
+    const again = watch.new();
+    if (!watch.tick(again, 6 * 3600)) @panic("uo watch: the first tick failed again");
+    mark = watch.heapMark();
+    const second = std.testing.allocator.dupe(u8, watch.json(again, 6 * 3600)) catch @panic("oom");
+    watch.heapBack(mark);
+    return .{ .first = first, .again = second };
+}
+
+test "a start over builds the town anew: after a day of play, the same town as a fresh one" {
+    try giveWatchRegion();
+    const t = @import("stack.zig").onStack(request_stack, startOver, .{});
+    defer std.testing.allocator.free(t.first);
+    defer std.testing.allocator.free(t.again);
+    try std.testing.expectEqualStrings(t.first, t.again);
+}
+
 test "the town watch ticks three game days on a request's stack: shops open by their hours, the heap flat after the first" {
     try giveWatchRegion();
     const t = @import("stack.zig").onStack(request_stack, tickThreeDays, .{});

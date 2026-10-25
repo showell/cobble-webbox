@@ -11,6 +11,8 @@ pub const api = struct {
     pub const heapUsed = lib.cx.heapUsed;
     pub const heapMark = lib.cx.heapMark;
     pub const heapBack = lib.cx.heapBack;
+    /// Everything given back: the town too (a start over builds a new one).
+    pub const heapReset = lib.cx.heapReset;
 
     /// The town, built: everything it keeps is below the frontier after.
     pub fn new() Watch {
