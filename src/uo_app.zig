@@ -8,6 +8,7 @@
 //!   GET /uo/town/map        the map's bounds and shops, JSON, once
 //!   GET /uo/town/now        where everyone is, JSON
 //!   GET /uo/town/events     the same, each tick, as a stream
+//!   POST /uo/town/speed?x=N  game seconds a real one: 60, 120, 600 or 1200
 //!
 //! A proof's run starts its Codex heap from its base, so it costs nothing
 //! that lasts. The town lives below its heap's mark; each tick's scratch
@@ -28,11 +29,14 @@ pub const prefix = "/uo";
 /// town proof about 24 MB, the kept town about 18 MB.
 const heap_region: usize = 128 * 1024 * 1024;
 
-/// The town's clock: a tick a quarter second, 120 game seconds a real one
-/// (a game day in 12 minutes), from six in the morning.
+/// The town's clock: a tick a quarter second, from six in the morning, at
+/// `speed` game seconds a real one (120: a game day in 12 minutes). A
+/// change of speed starts the clock again from where it is, so the town's
+/// time never jumps or goes back.
 const tick_ns: i96 = 250 * std.time.ns_per_ms;
-const game_speed: i96 = 120;
 const game_start: i64 = 6 * 3600;
+const speeds = [_]i64{ 60, 120, 600, 1200 };
+var speed: i64 = 120;
 
 const events_key = "uo-town";
 
@@ -40,9 +44,11 @@ pub const StartReport = struct { problem: []const u8 };
 
 var kept: watch.Watch = undefined;
 var game_seconds: i64 = game_start;
-/// When the clock's game_start was, on the awake clock; null before the
+/// The game time the clock last started from, and when, on the awake
+/// clock; null before the first `between`.
+var base_seconds: i64 = game_start;
 /// first `between`.
-var started_ns: ?i96 = null;
+var base_ns: ?i96 = null;
 var next_tick_ns: i96 = 0;
 /// The latest `watch.json`, copied out of the Codex heap.
 var now_json: std.ArrayList(u8) = .empty;
@@ -76,19 +82,22 @@ fn advance(seconds: i64) !void {
     const mark = watch.heapMark();
     defer watch.heapBack(mark);
     now_json.clearRetainingCapacity();
-    try now_json.appendSlice(gpa, watch.json(kept, seconds));
+    // The town's JSON, with the speed every watcher shares.
+    const town_json = watch.json(kept, seconds);
+    try now_json.print(gpa, "{{\"speed\":{d},", .{speed});
+    try now_json.appendSlice(gpa, town_json[1..]);
 }
 
 pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.Wake {
     _ = io;
     if (problem.len > 0) return .idle;
-    const t0 = started_ns orelse blk: {
-        started_ns = now.awake_ns;
+    const t0 = base_ns orelse blk: {
+        base_ns = now.awake_ns;
         next_tick_ns = now.awake_ns;
         break :blk now.awake_ns;
     };
     if (now.awake_ns < next_tick_ns) return .{ .at = next_tick_ns };
-    const target: i64 = game_start + @as(i64, @intCast(@divFloor((now.awake_ns - t0) * game_speed, std.time.ns_per_s)));
+    const target: i64 = base_seconds + @as(i64, @intCast(@divFloor((now.awake_ns - t0) * speed, std.time.ns_per_s)));
     if (target > game_seconds) {
         advance(target) catch |e| std.debug.panic("uo town: {s} at game second {d}", .{ @errorName(e), target });
         bus.publish(events_key, now_json.items);
@@ -112,12 +121,24 @@ fn sink(line: []const u8) void {
 
 const json_ct: std.http.Header = .{ .name = "content-type", .value = "application/json; charset=utf-8" };
 
+/// A new speed from now on: the clock started again from the town's time.
+fn setSpeed(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const x = std.fmt.parseInt(i64, http.queryValue(whole, "x") orelse "", 10) catch 0;
+    if (std.mem.indexOfScalar(i64, &speeds, x) == null)
+        return req.respond("speed is 60, 120, 600 or 1200 game seconds a real one\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+    base_seconds = game_seconds;
+    base_ns = Io.Clock.now(.awake, io).nanoseconds;
+    speed = x;
+    return req.respond("", .{ .status = .no_content });
+}
+
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, bus: *webbox.bus.Bus) !void {
-    _ = io;
     const whole = try http.target(req, alloc);
     const path = http.pathUnder(http.pathOf(whole), prefix) orelse return http.notFound(req);
     if (std.mem.eql(u8, path, "/town")) return http.redirect(req, prefix ++ "/town/");
     if (std.mem.eql(u8, path, "/town/events")) return webbox.sse.forward(req, bus, events_key);
+    if (std.mem.eql(u8, path, "/town/speed")) return setSpeed(req, io, whole);
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/town/")) return req.respond(@embedFile("uo_town_page"), .{ .extra_headers = &.{http.html_ct} });
     if (std.mem.eql(u8, path, "/town/map") or std.mem.eql(u8, path, "/town/now")) {

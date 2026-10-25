@@ -11,6 +11,9 @@
   header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; font-weight: normal; letter-spacing: 0.5px; }
   #clock { font-variant-numeric: tabular-nums; color: var(--dim); }
+  #speed { display: flex; gap: 4px; align-items: center; color: var(--dim); font-size: 13px; }
+  #speed button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+  #speed button.on { background: #4a5a33; border-color: #8a9a63; }
   #live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #7a7; margin-right: 6px; }
   #live.off { background: #c55; }
   main { display: flex; gap: 12px; padding: 0 16px 16px; flex-wrap: wrap; }
@@ -29,6 +32,9 @@
 <body>
 <header>
   <h1>Britain, watched</h1>
+  <span id="speed">pace
+    <button data-x="60">slow</button><button data-x="120">normal</button><button data-x="600">fast</button><button data-x="1200">faster</button>
+  </span>
   <span id="clock"><span id="live" class="off"></span><span id="time">connecting…</span></span>
 </header>
 <main>
@@ -46,15 +52,26 @@ const DOING = ["goes to bed", "heads to work", "sits down to a meal", "goes to m
                "goes to worship", "visits family", "rests at home"];
 const AT = ["asleep", "at work", "at a meal", "at market", "at the tavern", "at worship", "with family", "resting at home"];
 const COLORS = ["#d9a441", "#8fb3d9", "#d98fb3", "#9fd98f", "#d9c38f"];
+// The shopkeepers' trades, as BritainCatalog titles them.
+const TRADES = { "Provisioner": "🧺", "Blacksmith": "⚒️", "Tailor": "🧵", "Baker": "🍞", "Healer": "⚕️",
+  "Innkeeper": "🛏️", "Tinker": "🔧", "Carpenter": "🪚", "Paper miller": "📜", "Scribe": "✒️", "Glassblower": "🍶",
+  "Potter": "🏺", "Herbalist": "🌿", "Bowyer": "🏹", "Tanner": "🦬", "Leatherworker": "👜", "Cobbler": "👞",
+  "Fishmonger": "🐟", "Tavern keeper": "🍺", "Musician": "🎻", "Jeweler": "💎" };
 
 const canvas = document.getElementById("map"), ctx = canvas.getContext("2d");
 // The ground (grass, worn paths, shops), painted once offscreen and
 // touched only where a path wears in; each frame copies it and draws the
 // people over it.
 const ground = document.createElement("canvas"), gctx = ground.getContext("2d");
-let map = null, tile = 4, people = [], prev = {}, lastAt = 0, seconds = 0, following = null, wornSince = false;
+let map = null, tile = 4, people = [], keepers = [], prev = {}, lastAt = 0, seconds = 0, following = null, wornSince = false;
 const worn = new Map();   // tile -> footfall: the town's paths, worn in by walking
 const seen = {};          // name -> last activity, for the crier
+const shutSeen = {};      // trade -> whether its shop was shut, for the crier
+
+function premisesOf(title) {
+  const s = map.shops.find(s => s.title === title);
+  return s ? s.premises : "the " + title.toLowerCase();
+}
 
 function hhmm(s) {
   const d = Math.floor(s / 86400) + 1, h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
@@ -136,6 +153,14 @@ function take(snapshot) {
     if (seen[p.name] !== undefined && seen[p.name] !== p.activity) crier(`${p.name} the ${job} ${DOING[p.activity] || "wanders"}.`);
     seen[p.name] = p.activity;
   }
+  keepers = snapshot.keepers || [];
+  for (const k of keepers) {
+    const shut = k.shut !== 0;
+    if (shutSeen[k.title] !== undefined && shutSeen[k.title] !== shut)
+      crier(shut ? `${premisesOf(k.title)} shuts its doors.` : `${premisesOf(k.title)} opens for trade.`);
+    shutSeen[k.title] = shut;
+  }
+  for (const b of document.querySelectorAll("#speed button")) b.classList.toggle("on", Number(b.dataset.x) === snapshot.speed);
   // A path worn over a shop's label: the labels go back on top.
   if (wornSince) { paintShops(); wornSince = false; }
   const t = hhmm(seconds);
@@ -145,6 +170,12 @@ function take(snapshot) {
 
 function showCard() {
   const card = document.getElementById("card");
+  const k = keepers.find(q => "keeper " + q.title === following);
+  if (k) {
+    card.classList.remove("hint");
+    card.textContent = `${TRADES[k.title] || "🧑"} The ${k.title.toLowerCase()} of ${premisesOf(k.title)}: ${k.shut ? "shut" : "open for trade"}.`;
+    return;
+  }
   const p = people.find(q => q.name === following);
   if (!p) return;
   if (p.hitY !== undefined) {   // keep the one followed in view
@@ -168,6 +199,19 @@ function draw() {
   ctx.textAlign = "center";
   const hour = hhmm(seconds).hour, dark = hour < 5 || hour > 21 ? 0.55 : hour < 7 ? (7 - hour) * 0.27 : hour > 19 ? (hour - 19) * 0.27 : 0;
   const f = Math.min(1, (performance.now() - lastAt) / 250);
+  // The keepers: smaller, behind their counters, faded while the shop is shut.
+  for (const k of keepers) {
+    if (k.x < 0) continue;
+    const x = sx(k.x) + T / 2, y = sy(k.y) + T / 2, r = 9 * d;
+    ctx.globalAlpha = k.shut ? 0.4 : 1;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#e8dcc0"; ctx.fill();
+    ctx.strokeStyle = "keeper " + k.title === following ? "#fff" : "#4a2618"; ctx.lineWidth = 2 * d; ctx.stroke();
+    ctx.font = `${11 * d}px serif`; ctx.textBaseline = "middle"; ctx.fillStyle = "#000";
+    ctx.fillText(TRADES[k.title] || "🧑", x, y + d);
+    ctx.textBaseline = "alphabetic"; ctx.globalAlpha = 1;
+    k.hitX = x / d; k.hitY = y / d;
+  }
   people.forEach((p, i) => {
     const from = prev[p.name] || p;
     p.drawX = from.x + (p.x - from.x) * f;
@@ -193,11 +237,15 @@ canvas.addEventListener("click", e => {
   const b = canvas.getBoundingClientRect();
   const x = e.clientX - b.left, y = e.clientY - b.top;
   let best = null, dist = 28;
-  for (const p of people) { const dd = Math.hypot(p.hitX - x, p.hitY - y); if (dd < dist) { dist = dd; best = p; } }
-  following = best ? best.name : null;
+  for (const p of people) { const dd = Math.hypot(p.hitX - x, p.hitY - y); if (dd < dist) { dist = dd; best = p.name; } }
+  for (const k of keepers) { const dd = Math.hypot(k.hitX - x, k.hitY - y); if (dd < dist) { dist = dd; best = "keeper " + k.title; } }
+  following = best;
   if (!best) { const c = document.getElementById("card"); c.classList.add("hint"); c.textContent = "Tap a townsperson to follow them."; }
   showCard();
 });
+
+for (const b of document.querySelectorAll("#speed button"))
+  b.addEventListener("click", () => fetch("speed?x=" + b.dataset.x, { method: "POST" }));
 
 function listen() {
   const live = document.getElementById("live");
