@@ -14,6 +14,7 @@
 //!   POST /uo/town/say?t=TOKEN&words=  heard by the townsfolk near it; "vendor buy" to a keeper
 //!   GET  /uo/town/offers?t=TOKEN      the prices a keeper quoted it
 //!   POST /uo/town/buy?t=TOKEN&i=&n=   buy n of offer i
+//!   POST /uo/town/errand?t=TOKEN&who=1..3&do=home|work|tavern   a resident sent there for a game hour
 //!
 //! A proof's run starts its Codex heap from its base, so it costs nothing
 //! that lasts. The town lives below its heap's mark; each tick's scratch
@@ -237,6 +238,35 @@ fn buy(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: [
     return req.respond(answer, .{ .extra_headers = &.{json_ct} });
 }
 
+/// The seat's player sends a resident on an errand for a game hour. Lasting.
+fn errand(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const slot = seatOf(io, whole) orelse return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
+    const who = std.fmt.parseInt(i64, http.queryValue(whole, "who") orelse "", 10) catch 0;
+    const Errand = struct { word: []const u8, action: i64, said: []const u8 };
+    const errands = [_]Errand{ .{ .word = "home", .action = 0, .said = "go home" }, .{ .word = "work", .action = 1, .said = "go to work" }, .{ .word = "tavern", .action = 4, .said = "go to the tavern" } };
+    const do = http.queryValue(whole, "do") orelse "";
+    const e = for (errands) |x| {
+        if (std.mem.eql(u8, x.word, do)) break x;
+    } else return req.respond("an errand is home, work or tavern\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+    const answer = watch.errand(kept, who, e.action, 0);
+    if (answer < 0) return req.respond("{\"sent\":false}", .{ .extra_headers = &.{json_ct} });
+    // Every watcher hears the player send the resident (by name, from the feed).
+    if (std.mem.indexOf(u8, now_json.items, "\"people\":[")) |at| {
+        var names = std.mem.splitSequence(u8, now_json.items[at..], "{\"name\":\"");
+        _ = names.next();
+        var n: i64 = 1;
+        while (names.next()) |rest| : (n += 1) if (n == who) {
+            const name = rest[0 .. std.mem.indexOfScalar(u8, rest, '"') orelse 0];
+            if (spoken.items.len > 0) try spoken.append(gpa, ',');
+            const player = seats[slot].name[0..seats[slot].name_len];
+            try spoken.print(gpa, "{{\"who\":{f},\"to\":{f},\"text\":{f}}}", .{ std.json.fmt(player, .{}), std.json.fmt(name, .{}), std.json.fmt(e.said, .{}) });
+            break;
+        };
+    }
+    return req.respond("{\"sent\":true}", .{ .extra_headers = &.{json_ct} });
+}
+
 /// The seat holding token `t` sends its body to (x, y).
 fn go(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
     if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
@@ -270,6 +300,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     if (std.mem.eql(u8, path, "/town/say")) return say(req, io, alloc, whole);
     if (std.mem.eql(u8, path, "/town/offers")) return offers(req, io, alloc, whole);
     if (std.mem.eql(u8, path, "/town/buy")) return buy(req, io, alloc, whole);
+    if (std.mem.eql(u8, path, "/town/errand")) return errand(req, io, whole);
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/town/")) return req.respond(@embedFile("uo_town_page"), .{ .extra_headers = &.{http.html_ct} });
     if (std.mem.eql(u8, path, "/town/map") or std.mem.eql(u8, path, "/town/now")) {

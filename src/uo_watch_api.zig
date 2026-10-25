@@ -68,6 +68,13 @@ pub const api = struct {
         return lib.cx.utf8(lib.tw_buy(w, slot, i, quantity, at));
     }
 
+    /// Resident `person` (1 to 3) sent on an errand for a game hour: action
+    /// 0 home, 1 to work, 4 to the tavern, 3 to keeper `keeper`'s shop. 0
+    /// sent, below 0 refused (tl-direct's answer). Lasting.
+    pub fn errand(w: Watch, person: i64, action: i64, keeper: i64) i64 {
+        return lib.tw_errand(w, person, action, keeper);
+    }
+
     /// Damian's own checks of the town (TLC1) and of its currency.
     pub fn valid(w: Watch) bool {
         return lib.tw_valid(w);

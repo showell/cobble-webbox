@@ -29,6 +29,8 @@
   .hint { color: var(--dim); font-size: 13px; }
   #you form { display: flex; gap: 6px; }
   #you input { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+  #card .phrases { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  #card .phrases button { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
   #you .phrases { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
   #you .phrases button { background: var(--panel); border-color: var(--line); font-size: 13px; padding: 2px 8px; }
   #you table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 14px; }
@@ -205,6 +207,7 @@ function showCard() {
   const k = keepers.find(q => "keeper " + q.title === following);
   if (k) {
     card.classList.remove("hint");
+    card.dataset.for = "";
     card.textContent = `${TRADES[k.title] || "🧑"} The ${k.title.toLowerCase()} of ${premisesOf(k.title)}: ${k.shut ? "shut" : "open for trade"}.`;
     return;
   }
@@ -218,8 +221,22 @@ function showCard() {
   const [job, face] = JOBS[p.job] || JOBS[0];
   const shop = map.shops.find(s => p.x >= s.x1 - 3 && p.x <= s.x2 + 3 && p.y >= s.y1 - 3 && p.y <= s.y2 + 3);
   card.classList.remove("hint");
-  card.textContent = `${face} ${p.name}, the ${job}: ${AT[p.activity] || "about"}, ` +
+  const line = `${face} ${p.name}, the ${job}: ${AT[p.activity] || "about"}, ` +
     (shop ? `by ${shop.premises}.` : `out in the town (${p.x}, ${p.y}).`);
+  // A player may send a resident on an errand; the buttons stay while the card is shown.
+  if (!me) { card.textContent = line; return; }
+  if (card.dataset.for !== p.name) {
+    card.dataset.for = p.name;
+    card.innerHTML = `<div class="line"></div><div class="phrases"><button data-do="home">Send home</button><button data-do="work">Send to work</button><button data-do="tavern">Send to the tavern</button></div>`;
+    const who = people.indexOf(p) + 1;
+    for (const b of card.querySelectorAll("button")) b.addEventListener("click", async () => {
+      const r = await fetch(`errand?t=${me.token}&who=${who}&do=${b.dataset.do}`, { method: "POST" });
+      if (r.status === 403) return forget();
+      const answer = await r.json();
+      if (!answer.sent) crier(`${p.name} will not go.`);
+    });
+  }
+  card.querySelector(".line").textContent = line;
 }
 
 function draw() {
@@ -308,7 +325,7 @@ canvas.addEventListener("click", e => {
     return;
   }
   following = best;
-  if (!best) { const c = document.getElementById("card"); c.classList.add("hint"); c.textContent = "Tap a townsperson to follow them."; }
+  if (!best) { const c = document.getElementById("card"); c.classList.add("hint"); c.dataset.for = ""; c.textContent = "Tap a townsperson to follow them."; }
   showCard();
 });
 

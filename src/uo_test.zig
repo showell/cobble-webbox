@@ -176,6 +176,43 @@ test "players ask a keeper's prices and buy: the installation's purse pays, an e
     try std.testing.expect(t.valid);
 }
 
+/// Nell, at her oven at nine, sent to the tavern for a game hour; where
+/// she is half an hour on, and two hours on, once the errand is over.
+const Sent = struct { answer: i64, no_one: i64, no_errand: i64, goal_sent: bool, left_oven: bool, back_at_work: bool, valid: bool };
+
+fn sendNell() Sent {
+    const w = watch.new();
+    if (watch.problem(w).len > 0) @panic("uo watch: no town");
+    var out: Sent = .{ .answer = 99, .no_one = 99, .no_errand = 99, .goal_sent = false, .left_oven = false, .back_at_work = false, .valid = false };
+    var s: i64 = 6 * 3600;
+    while (s <= 9 * 3600) : (s += 30) if (!watch.tick(w, s)) @panic("uo watch: a step failed");
+    out.answer = watch.errand(w, 1, 4, 0);
+    out.no_one = watch.errand(w, 4, 4, 0);
+    out.no_errand = watch.errand(w, 1, 2, 0);
+    while (s <= 9 * 3600 + 1800) : (s += 30) if (!watch.tick(w, s)) @panic("uo watch: a step failed");
+    var mark = watch.heapMark();
+    var j = watch.json(w, s);
+    out.goal_sent = std.mem.indexOf(u8, j, "{\"name\":\"Nell\",\"job\":2,\"goal\":2") != null;
+    out.left_oven = std.mem.indexOf(u8, j, "\"x\":1446,\"y\":1613") == null;
+    watch.heapBack(mark);
+    while (s <= 11 * 3600) : (s += 30) if (!watch.tick(w, s)) @panic("uo watch: a step failed");
+    mark = watch.heapMark();
+    j = watch.json(w, s);
+    out.back_at_work = std.mem.indexOf(u8, j, "{\"name\":\"Nell\",\"job\":2,\"goal\":1") != null;
+    watch.heapBack(mark);
+    out.valid = watch.valid(w);
+    return out;
+}
+
+test "a player sends Nell to the tavern: she goes, and keeps her schedule again after the hour" {
+    try giveWatchRegion();
+    const t = @import("stack.zig").onStack(request_stack, sendNell, .{});
+    std.debug.print("uo errand: answer {d} (no resident 4: {d}, action 2: {d}); goal the tavern {}, left the oven {}, back at work {}, valid {}\n", .{ t.answer, t.no_one, t.no_errand, t.goal_sent, t.left_oven, t.back_at_work, t.valid });
+    try std.testing.expectEqual(@as(i64, 0), t.answer);
+    try std.testing.expect(t.no_one < 0 and t.no_errand < 0);
+    try std.testing.expect(t.goal_sent and t.left_oven and t.back_at_work and t.valid);
+}
+
 test "the town watch ticks three game days on a request's stack: shops open by their hours, the heap flat after the first" {
     try giveWatchRegion();
     const t = @import("stack.zig").onStack(request_stack, tickThreeDays, .{});
