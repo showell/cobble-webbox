@@ -27,6 +27,33 @@ pub const api = struct {
         return lib.tw_tick(w, seconds);
     }
 
+    /// A player in seat `slot` (0 to 4), named `name` (ASCII): its body's
+    /// serial, or -1. Lasting: no heap mark may be taken back past it.
+    pub fn join(w: Watch, slot: i64, name: []const u8) error{NotAscii}!i64 {
+        return lib.tw_join(w, slot, try lib.cx.fromAscii(name));
+    }
+
+    /// The seat empty again; its body stays where it stands.
+    pub fn leave(w: Watch, slot: i64) bool {
+        return lib.tw_leave(w, slot);
+    }
+
+    /// The seat's body sent to (x, y); false off the map or with no body.
+    pub fn goal(w: Watch, slot: i64, x: i64, y: i64) bool {
+        return lib.tw_goal(w, slot, x, y);
+    }
+
+    /// What the townsfolk say to the players now, as a JSON array of
+    /// `{who, to, text}`.
+    pub fn greet(w: Watch, seconds: i64) []const u8 {
+        return lib.cx.utf8(lib.tw_greet(w, seconds));
+    }
+
+    /// Damian's own checks of the town (TLC1) and of its currency.
+    pub fn valid(w: Watch) bool {
+        return lib.tw_valid(w);
+    }
+
     /// Where everyone is now, as JSON.
     pub fn json(w: Watch, seconds: i64) []const u8 {
         return lib.cx.utf8(lib.tw_json(w, seconds));

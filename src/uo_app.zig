@@ -9,6 +9,8 @@
 //!   GET /uo/town/now        where everyone is, JSON
 //!   GET /uo/town/events     the same, each tick, as a stream
 //!   POST /uo/town/speed?x=N  game seconds a real one: 60, 120, 600 or 1200
+//!   POST /uo/town/join?name=Ann       a seat: `{"token":..,"seat":n}`, 503 when all five are taken
+//!   POST /uo/town/go?t=TOKEN&x=&y=    the seat's body sent walking there
 //!
 //! A proof's run starts its Codex heap from its base, so it costs nothing
 //! that lasts. The town lives below its heap's mark; each tick's scratch
@@ -47,7 +49,6 @@ var game_seconds: i64 = game_start;
 /// The game time the clock last started from, and when, on the awake
 /// clock; null before the first `between`.
 var base_seconds: i64 = game_start;
-/// first `between`.
 var base_ns: ?i96 = null;
 var next_tick_ns: i96 = 0;
 /// The latest `watch.json`, copied out of the Codex heap.
@@ -55,6 +56,13 @@ var now_json: std.ArrayList(u8) = .empty;
 var map_json: []const u8 = "";
 var gpa: std.mem.Allocator = undefined;
 var problem: []const u8 = "";
+
+/// The town's five seats (TownWatch's, the account's character slots), each
+/// held by the token its player was given; a seat quiet for `seat_idle_ns`
+/// is free again, its body left where it stands.
+const Seat = struct { token: [16]u8 = undefined, held: bool = false, last_ns: i96 = 0 };
+var seats: [5]Seat = @splat(.{});
+const seat_idle_ns: i96 = 120 * std.time.ns_per_s;
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     _ = io;
@@ -82,9 +90,11 @@ fn advance(seconds: i64) !void {
     const mark = watch.heapMark();
     defer watch.heapBack(mark);
     now_json.clearRetainingCapacity();
-    // The town's JSON, with the speed every watcher shares.
+    // The town's JSON, with the speed every watcher shares and what the
+    // townsfolk said to the players this tick.
+    const said = watch.greet(kept, seconds);
     const town_json = watch.json(kept, seconds);
-    try now_json.print(gpa, "{{\"speed\":{d},", .{speed});
+    try now_json.print(gpa, "{{\"speed\":{d},\"said\":{s},", .{ speed, said });
     try now_json.appendSlice(gpa, town_json[1..]);
 }
 
@@ -97,6 +107,10 @@ pub fn between(io: Io, now: webbox.site.Now, bus: *webbox.bus.Bus) webbox.site.W
         break :blk now.awake_ns;
     };
     if (now.awake_ns < next_tick_ns) return .{ .at = next_tick_ns };
+    for (&seats, 0..) |*seat, i| if (seat.held and now.awake_ns - seat.last_ns > seat_idle_ns) {
+        seat.held = false;
+        _ = watch.leave(kept, @intCast(i));
+    };
     const target: i64 = base_seconds + @as(i64, @intCast(@divFloor((now.awake_ns - t0) * speed, std.time.ns_per_s)));
     if (target > game_seconds) {
         advance(target) catch |e| std.debug.panic("uo town: {s} at game second {d}", .{ @errorName(e), target });
@@ -121,6 +135,43 @@ fn sink(line: []const u8) void {
 
 const json_ct: std.http.Header = .{ .name = "content-type", .value = "application/json; charset=utf-8" };
 
+/// A seat for `name` (letters, 1 to 16): its body at the town's entrance,
+/// or the body its last player left. Lasting: the Codex heap keeps it.
+fn join(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, whole: []const u8) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const name = http.queryValue(whole, "name") orelse "";
+    const fine = name.len >= 1 and name.len <= 16 and for (name) |c| {
+        if (!std.ascii.isAlphabetic(c)) break false;
+    } else true;
+    if (!fine) return req.respond("a name is 1 to 16 letters\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+    const slot = for (seats, 0..) |seat, i| {
+        if (!seat.held) break i;
+    } else return req.respond("{\"error\":\"the town is full (5)\"}", .{ .status = .service_unavailable, .extra_headers = &.{json_ct} });
+    if ((watch.join(kept, @intCast(slot), name) catch -1) <= 0)
+        return req.respond("{\"error\":\"no body for the seat\"}", .{ .status = .internal_server_error, .extra_headers = &.{json_ct} });
+    var bytes: [8]u8 = undefined;
+    io.random(&bytes);
+    const seat = &seats[slot];
+    _ = std.fmt.bufPrint(&seat.token, "{x}", .{bytes}) catch unreachable;
+    seat.held = true;
+    seat.last_ns = Io.Clock.now(.awake, io).nanoseconds;
+    return req.respond(try std.fmt.allocPrint(alloc, "{{\"token\":\"{s}\",\"seat\":{d}}}", .{ &seat.token, slot }), .{ .extra_headers = &.{json_ct} });
+}
+
+/// The seat holding token `t` sends its body to (x, y).
+fn go(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const t = http.queryValue(whole, "t") orelse "";
+    const slot = for (seats, 0..) |seat, i| {
+        if (seat.held and std.mem.eql(u8, &seat.token, t)) break i;
+    } else return req.respond("no seat holds that token\n", .{ .status = .forbidden, .extra_headers = &.{http.plain_ct} });
+    seats[slot].last_ns = Io.Clock.now(.awake, io).nanoseconds;
+    const x = std.fmt.parseInt(i64, http.queryValue(whole, "x") orelse "", 10) catch -1;
+    const y = std.fmt.parseInt(i64, http.queryValue(whole, "y") orelse "", 10) catch -1;
+    if (!watch.goal(kept, @intCast(slot), x, y)) return req.respond("not a place on the map\n", .{ .status = .bad_request, .extra_headers = &.{http.plain_ct} });
+    return req.respond("", .{ .status = .no_content });
+}
+
 /// A new speed from now on: the clock started again from the town's time.
 fn setSpeed(req: *std.http.Server.Request, io: Io, whole: []const u8) !void {
     if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
@@ -139,6 +190,8 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     if (std.mem.eql(u8, path, "/town")) return http.redirect(req, prefix ++ "/town/");
     if (std.mem.eql(u8, path, "/town/events")) return webbox.sse.forward(req, bus, events_key);
     if (std.mem.eql(u8, path, "/town/speed")) return setSpeed(req, io, whole);
+    if (std.mem.eql(u8, path, "/town/join")) return join(req, io, alloc, whole);
+    if (std.mem.eql(u8, path, "/town/go")) return go(req, io, whole);
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/town/")) return req.respond(@embedFile("uo_town_page"), .{ .extra_headers = &.{http.html_ct} });
     if (std.mem.eql(u8, path, "/town/map") or std.mem.eql(u8, path, "/town/now")) {

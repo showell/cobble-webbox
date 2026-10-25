@@ -146,7 +146,9 @@ is merged.
   between calls) built at start and ticked from `between` every 250 ms at 120 game
   seconds a real one, watched at `/uo/town/` (`web/uo-town.html`, a canvas, over the
   `/uo/town/events` stream). Three game days leave its Codex heap the same as one
-  (about 18 MB). The UO server itself does not run here yet.
+  (about 18 MB). Up to five players join (`/uo/town/join`), walk where they tap
+  (`/uo/town/go`, by the townsfolk's own routes) and are greeted by the residents and
+  keepers. The UO server itself does not run here yet.
 - A panic in one request ends the process.
 - The emitted runtime reserves its heap from the OS (4 GiB of address space, taken
   lazily) and never frees it: fine for a dev port, not yet for a 512 MB droplet.

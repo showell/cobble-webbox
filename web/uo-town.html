@@ -27,6 +27,9 @@
   #crier .t { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 6px; }
   #card { min-height: 3em; }
   .hint { color: var(--dim); font-size: 13px; }
+  #you form { display: flex; gap: 6px; }
+  #you input { flex: 1; min-width: 0; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+  #you button { font: inherit; color: var(--ink); background: #4a5a33; border: 1px solid #8a9a63; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -40,6 +43,9 @@
 <main>
   <div id="stage"><canvas id="map"></canvas></div>
   <aside>
+    <div class="box"><h2>You</h2><div id="you">
+      <form id="join"><input id="name" maxlength="16" placeholder="your name (letters)" autocomplete="off"><button>Join</button></form>
+    </div></div>
     <div class="box"><h2>Following</h2><div id="card" class="hint">Tap a townsperson to follow them.</div></div>
     <div class="box"><h2>The town crier</h2><ul id="crier"></ul></div>
   </aside>
@@ -63,7 +69,12 @@ const canvas = document.getElementById("map"), ctx = canvas.getContext("2d");
 // touched only where a path wears in; each frame copies it and draws the
 // people over it.
 const ground = document.createElement("canvas"), gctx = ground.getContext("2d");
-let map = null, tile = 4, people = [], keepers = [], prev = {}, lastAt = 0, seconds = 0, following = null, wornSince = false;
+let map = null, tile = 4, people = [], keepers = [], players = [], prev = {}, lastAt = 0, seconds = 0, following = null, wornSince = false;
+// This browser's seat, if it joined: kept for the tab, so a reload keeps it.
+let me = null;
+try { me = JSON.parse(sessionStorage.getItem("uo-seat")); } catch (e) {}
+const bubbles = [];       // {who, text, until}: what was said, over the speaker
+const PLAYER_COLORS = ["#f0c419", "#e86a5c", "#5cc8e8", "#b58cf0", "#8ce87a"];
 const worn = new Map();   // tile -> footfall: the town's paths, worn in by walking
 const seen = {};          // name -> last activity, for the crier
 const shutSeen = {};      // trade -> whether its shop was shut, for the crier
@@ -140,6 +151,12 @@ function take(snapshot) {
   const now = performance.now();
   prev = {};
   for (const p of people) prev[p.name] = { x: p.drawX ?? p.x, y: p.drawY ?? p.y };
+  for (const p of players) prev["seat " + p.seat] = { x: p.drawX ?? p.x, y: p.drawY ?? p.y };
+  players = snapshot.players || [];
+  for (const line of snapshot.said || []) {
+    bubbles.push({ who: line.who, text: line.text, until: now + 6000 });
+    crier(`${line.who} to ${line.to}: “${line.text}”`);
+  }
   seconds = snapshot.seconds;
   people = snapshot.people;
   lastAt = now;
@@ -154,12 +171,17 @@ function take(snapshot) {
     seen[p.name] = p.activity;
   }
   keepers = snapshot.keepers || [];
+  const opened = [], closed = [];
   for (const k of keepers) {
     const shut = k.shut !== 0;
-    if (shutSeen[k.title] !== undefined && shutSeen[k.title] !== shut)
-      crier(shut ? `${premisesOf(k.title)} shuts its doors.` : `${premisesOf(k.title)} opens for trade.`);
+    if (shutSeen[k.title] !== undefined && shutSeen[k.title] !== shut) (shut ? closed : opened).push(premisesOf(k.title));
     shutSeen[k.title] = shut;
   }
+  // The morning's openings come together: one line for a crowd of them.
+  if (opened.length > 3) crier(`${opened.length} of Britain's shops open for trade.`);
+  else for (const o of opened) crier(`${o} opens for trade.`);
+  if (closed.length > 3) crier(`${closed.length} of Britain's shops shut their doors.`);
+  else for (const c of closed) crier(`${c} shuts its doors.`);
   for (const b of document.querySelectorAll("#speed button")) b.classList.toggle("on", Number(b.dataset.x) === snapshot.speed);
   // A path worn over a shop's label: the labels go back on top.
   if (wornSince) { paintShops(); wornSince = false; }
@@ -199,6 +221,23 @@ function draw() {
   ctx.textAlign = "center";
   const hour = hhmm(seconds).hour, dark = hour < 5 || hour > 21 ? 0.55 : hour < 7 ? (7 - hour) * 0.27 : hour > 19 ? (hour - 19) * 0.27 : 0;
   const f = Math.min(1, (performance.now() - lastAt) / 250);
+  // The players: each seat its colour, this browser's ringed in gold.
+  for (const p of players) {
+    const from = prev["seat " + p.seat] || p;
+    p.drawX = from.x + (p.x - from.x) * f;
+    p.drawY = from.y + (p.y - from.y) * f;
+    const x = sx(p.drawX) + T / 2, y = sy(p.drawY) + T / 2, r = 12 * d, mine = me && me.seat === p.seat;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = PLAYER_COLORS[p.seat % PLAYER_COLORS.length]; ctx.fill();
+    ctx.strokeStyle = mine ? "#ffd700" : "#1d2318"; ctx.lineWidth = (mine ? 4 : 2) * d; ctx.stroke();
+    ctx.font = `${13 * d}px serif`; ctx.textBaseline = "middle"; ctx.fillStyle = "#000";
+    ctx.fillText("🧭", x, y + d);
+    ctx.font = `${12 * d}px Georgia`; ctx.textBaseline = "alphabetic";
+    const label = mine ? p.name + " (you)" : p.name, nw = ctx.measureText(label).width + 10 * d;
+    ctx.fillStyle = "rgba(60,40,0,0.85)"; ctx.fillRect(x - nw / 2, y + r + 3 * d, nw, 16 * d);
+    ctx.fillStyle = "#ffe9a0"; ctx.fillText(label, x, y + r + 15 * d);
+    p.hitX = x / d; p.hitY = y / d;
+  }
   // The keepers: smaller, behind their counters, faded while the shop is shut.
   for (const k of keepers) {
     if (k.x < 0) continue;
@@ -231,6 +270,19 @@ function draw() {
     p.hitX = x / d; p.hitY = y / d;
   });
   if (dark > 0) { ctx.fillStyle = `rgba(10,14,40,${dark})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+  // Speech bubbles over whoever spoke (a resident by name, a keeper by trade).
+  const now = performance.now();
+  while (bubbles.length && bubbles[0].until < now) bubbles.shift();
+  for (const b of bubbles) {
+    const who = people.find(p => p.name === b.who) || keepers.find(k => k.title === b.who);
+    if (!who || who.hitX === undefined) continue;
+    const text = b.text.length > 60 ? b.text.slice(0, 57) + "…" : b.text;
+    ctx.font = `${12 * d}px Georgia`;
+    const w = ctx.measureText(text).width + 14 * d, x = who.hitX * d, y = who.hitY * d - 34 * d;
+    ctx.fillStyle = "rgba(255,250,235,0.95)"; ctx.fillRect(x - w / 2, y - 16 * d, w, 22 * d);
+    ctx.strokeStyle = "#4a2618"; ctx.lineWidth = d; ctx.strokeRect(x - w / 2, y - 16 * d, w, 22 * d);
+    ctx.fillStyle = "#2a1a08"; ctx.fillText(text, x, y);
+  }
 }
 
 canvas.addEventListener("click", e => {
@@ -239,10 +291,43 @@ canvas.addEventListener("click", e => {
   let best = null, dist = 28;
   for (const p of people) { const dd = Math.hypot(p.hitX - x, p.hitY - y); if (dd < dist) { dist = dd; best = p.name; } }
   for (const k of keepers) { const dd = Math.hypot(k.hitX - x, k.hitY - y); if (dd < dist) { dist = dd; best = "keeper " + k.title; } }
+  // Open ground: a player walks there; anyone else's tap follows no one.
+  if (!best && me) {
+    const tx = Math.floor(x / tile) + map.x, ty = Math.floor(y / tile) + map.y;
+    fetch(`go?t=${me.token}&x=${tx}&y=${ty}`, { method: "POST" }).then(r => { if (r.status === 403) forget(); });
+    return;
+  }
   following = best;
   if (!best) { const c = document.getElementById("card"); c.classList.add("hint"); c.textContent = "Tap a townsperson to follow them."; }
   showCard();
 });
+
+function showYou() {
+  const you = document.getElementById("you");
+  if (!me) return;
+  you.innerHTML = "";
+  you.append(`You are ${me.name}. Tap open ground to walk there; walk into a shop and its keeper greets you.`);
+}
+
+// A seat the server no longer holds for us (idle, or a restart): join again.
+function forget() {
+  me = null;
+  try { sessionStorage.removeItem("uo-seat"); } catch (e) {}
+  location.reload();
+}
+
+document.getElementById("join").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name = document.getElementById("name").value.trim();
+  const r = await fetch("join?name=" + encodeURIComponent(name), { method: "POST" });
+  if (!r.ok) { crier(r.status === 503 ? "The town is full: five players at most." : "A name is 1 to 16 letters."); return; }
+  const seat = await r.json();
+  me = { token: seat.token, seat: seat.seat, name };
+  try { sessionStorage.setItem("uo-seat", JSON.stringify(me)); } catch (e) {}
+  showYou();
+  crier(`${name} comes to Britain.`);
+});
+showYou();
 
 for (const b of document.querySelectorAll("#speed button"))
   b.addEventListener("click", () => fetch("speed?x=" + b.dataset.x, { method: "POST" }));
