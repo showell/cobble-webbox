@@ -387,7 +387,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, b
     const whole = try http.target(req, alloc);
     const path = http.pathOf(whole);
     // Relative, so it lands under whatever prefix a host mounts the town at.
-    if (std.mem.eql(u8, path, "/town")) return http.redirect(req, "town/");
+    if (std.mem.eql(u8, path, "/town")) return http.redirect(req, .relative("town/"));
     if (std.mem.eql(u8, path, "/town/events")) return webbox.sse.forward(req, bus, events_key);
     if (std.mem.eql(u8, path, "/town/speed")) return setSpeed(req, io, whole);
     if (std.mem.eql(u8, path, "/town/join")) return join(req, io, alloc, whole);
